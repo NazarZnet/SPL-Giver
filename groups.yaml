@@ -1,0 +1,12 @@
+- id: 1
+  spl_share_percent: 0.1
+  spl_price: 10.0
+  initial_unlock_percent: 0.25
+  unlock_interval_seconds: 90
+  unlock_percent_per_interval: 0.05
+- id: 2
+  spl_share_percent: 0.2
+  spl_price: 12.0
+  initial_unlock_percent: 0.2
+  unlock_interval_seconds: 60
+  unlock_percent_per_interval: 0.04
