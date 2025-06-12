@@ -1,32 +1,11 @@
+
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 
 use anyhow::Result;
-use serde::Deserialize;
-use tokio::{fs, sync::Mutex, task::JoinHandle};
+use tokio::{fs, sync::Mutex};
 
-use super::Buyer;
-#[derive(Debug, Deserialize)]
-pub struct Group {
-    pub id: u8,
-    #[serde(default)]
-    pub buyers: Vec<Buyer>,
-    pub spl_share_percent: f64,
-    #[serde(default)]
-    pub spl_total: u64,
-    pub spl_price: f64,
-    pub initial_unlock_percent: f64,
-    pub unlock_interval_seconds: u64,
-    pub unlock_percent_per_interval: f64,
-
-    #[serde(skip)]
-    #[serde(default)]
-    pub unlock_task: Option<Arc<Mutex<JoinHandle<()>>>>,
-
-    #[serde(skip)]
-    #[serde(default)]
-    pub unlock_task_spawned: bool,
-}
+use crate::schema::{Buyer, Group};
 
 #[derive(Debug)]
 pub struct GroupContext {
@@ -44,10 +23,10 @@ impl GroupContext {
         Ok(GroupContext { groups })
     }
 
-    pub async fn update_groups_spl_amount(&mut self, amount: u64) {
+    pub async fn update_groups_spl_amount(&mut self, amount: f64) {
         for group in &mut self.groups {
             let mut group = group.lock().await;
-            group.spl_total = (group.spl_share_percent * amount as f64) as u64;
+            group.spl_total = group.spl_share_percent * amount;
         }
     }
 
@@ -62,9 +41,10 @@ impl GroupContext {
             // Find the group asynchronously
 
             for group_arc in &self.groups {
-                let mut group = group_arc.lock().await;
+                let  group = group_arc.lock().await;
                 if group.id == buyer.group_id {
-                    group.buyers.push(buyer);
+                    // group.buyers.push(buyer);
+                    //TODO: save buyers and group to database
                     break;
                 }
             }

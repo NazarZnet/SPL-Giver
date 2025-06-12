@@ -22,7 +22,7 @@ pub struct SplTokenContext {
     token_acount: Pubkey,
     pub main_wallet: Arc<Keypair>,
     pub client: RpcClient,
-    amount: u64,
+    pub amount: u64,
 }
 
 impl SplTokenContext {

@@ -1,4 +1,5 @@
 mod distribution;
+mod schema;
 mod state;
 
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, middleware::Logger, web};
@@ -8,10 +9,21 @@ use pretty_env_logger::env_logger::{Builder, Env};
 
 use state::AppState;
 
+use crate::schema::{Buyer, Group};
+
 #[get("/")]
 async fn index() -> impl Responder {
     HttpResponse::Ok().body("Spl Token Service")
 }
+
+//TODO: Check transaction send some times
+//TODO: Create database with transations history
+// TODO: Make after fall start distribution from history
+// TODO: Check that group has enought tokens
+//TODO: create routes to get transaction history and all information about buyers and so on
+//TODO: create authorixation for all routes
+//TODO: create documentation and api doc
+//TODO: rewrite distribute not shedule task. Create loop that will check if there are any sheduled tasks exists and run them
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -29,22 +41,50 @@ async fn main() -> std::io::Result<()> {
     //         std::process::exit(1);
     //     });
 
-    let state = AppState::new("groups.yaml", "buyers_list.csv")
-        .await
-        .unwrap_or_else(|e| {
-            log::error!("Failed to generate app state: {:#?}", e);
-            std::process::exit(1);
-        });
+    let state = AppState::new().await.unwrap_or_else(|e| {
+        log::error!("Failed to generate app state: {:#?}", e);
+        std::process::exit(1);
+    });
     log::info!("App state generated successfully");
 
+    //TODO: Move this logic to external function
+    let groups = Group::from_yaml_file("groups.yaml", state.spl_token_context.amount as f64)
+        .await
+        .unwrap_or_else(|e| {
+            log::error!("Failed to load groups from YAML file: {:#?}", e);
+            std::process::exit(1);
+        });
+    for group in groups {
+        state.db.save_group(&group).await.unwrap_or_else(|e| {
+            log::error!("Failed to save group to database: {:#?}", e);
+            std::process::exit(1);
+        });
+    }
+
+    let buyers = Buyer::load_from_csv("buyers_list.csv")
+        .await
+        .unwrap_or_else(|e| {
+            log::error!("Failed to load buyers from CSV file: {:#?}", e);
+            std::process::exit(1);
+        });
+    for buyer in buyers {
+        state.db.save_buyer(&buyer).await.unwrap_or_else(|e| {
+            log::error!("Failed to save buyer to database: {:#?}", e);
+            std::process::exit(1);
+        });
+    }
+
     let data = web::Data::new(state);
+
+    // Run distribution in background
+    tokio::spawn(distribution::distribute_tokens(data.clone()));
 
     HttpServer::new(move || {
         App::new()
             .app_data(data.clone())
             .wrap(Logger::new("%a %t %r %s  %{Referer}i %Dms"))
             .service(index)
-            .service(distribution::distribute_tokens)
+        // .service(distribution::distribute_tokens)
     })
     .bind(("127.0.0.1", 8080))?
     .run()

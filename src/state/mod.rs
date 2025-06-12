@@ -1,12 +1,11 @@
 mod buyer;
-mod group;
+mod db;
+// mod group;
 mod spl_token_context;
 
 use std::str::FromStr;
 
-pub use buyer::*;
-pub use group::*;
-
+pub use db::*;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::native_token::LAMPORTS_PER_SOL;
@@ -16,11 +15,11 @@ use solana_sdk::signer::Signer;
 pub use spl_token_context::*;
 
 use anyhow::{Context, Result};
-use tokio::fs;
+
 use tokio::io::AsyncWriteExt;
 
 pub async fn save_to_env(key: &str, value: &str) -> Result<()> {
-    let mut file = fs::OpenOptions::new()
+    let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(".env")
@@ -35,10 +34,10 @@ pub async fn save_to_env(key: &str, value: &str) -> Result<()> {
 
 pub struct AppState {
     pub spl_token_context: SplTokenContext,
-    pub group_context: GroupContext,
+    pub db: DbContext,
 }
 impl AppState {
-    pub async fn new(groups_file_path: &str, buyers_file_path: &str) -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let client = RpcClient::new_with_commitment(
             String::from("http://127.0.0.1:8899"),
             CommitmentConfig::confirmed(),
@@ -85,18 +84,21 @@ impl AppState {
         let spl_token_context =
             SplTokenContext::new(client, main_wallet, mint, token_account, amount).await?;
 
-        let mut group_context = GroupContext::from_yaml_file(groups_file_path).await?;
+        // let mut group_context = GroupContext::from_yaml_file(groups_file_path).await?;
 
         // Update the groups with the total amount of SPL tokens
-        group_context.update_groups_spl_amount(amount).await;
+        // group_context.update_groups_spl_amount(amount as f64).await;
 
-        group_context.load_buyers_from_csv(buyers_file_path).await?;
-        log::info!("Buyers loaded successfully!");
-        log::info!("Groups: {:#?}", group_context);
+        // group_context.load_buyers_from_csv(buyers_file_path).await?;
+
+        let db = DbContext::new().await?;
+        log::info!("Database initialized successfully!");
+
+        // Save the main wallet and mint pubkey to the database
 
         Ok(AppState {
             spl_token_context,
-            group_context,
+            db,
         })
     }
 }
