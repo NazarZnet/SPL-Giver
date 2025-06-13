@@ -8,5 +8,5 @@
   spl_share_percent: 0.2
   spl_price: 12.0
   initial_unlock_percent: 0.2
-  unlock_interval_seconds: 60
+  unlock_interval_seconds: 120
   unlock_percent_per_interval: 0.04

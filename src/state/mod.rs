@@ -1,6 +1,5 @@
-mod buyer;
 mod db;
-// mod group;
+
 mod spl_token_context;
 
 use std::str::FromStr;
@@ -37,11 +36,9 @@ pub struct AppState {
     pub db: DbContext,
 }
 impl AppState {
-    pub async fn new() -> Result<Self> {
-        let client = RpcClient::new_with_commitment(
-            String::from("http://127.0.0.1:8899"),
-            CommitmentConfig::confirmed(),
-        );
+    pub async fn new(database_url: &str, client_url: impl ToString) -> Result<Self> {
+        let client =
+            RpcClient::new_with_commitment(client_url.to_string(), CommitmentConfig::confirmed());
 
         let main_wallet = if let Ok(wallet) = std::env::var("MAIN_WALLET") {
             Keypair::from_base58_string(&wallet)
@@ -84,17 +81,8 @@ impl AppState {
         let spl_token_context =
             SplTokenContext::new(client, main_wallet, mint, token_account, amount).await?;
 
-        // let mut group_context = GroupContext::from_yaml_file(groups_file_path).await?;
-
-        // Update the groups with the total amount of SPL tokens
-        // group_context.update_groups_spl_amount(amount as f64).await;
-
-        // group_context.load_buyers_from_csv(buyers_file_path).await?;
-
-        let db = DbContext::new().await?;
+        let db = DbContext::new(database_url).await?;
         log::info!("Database initialized successfully!");
-
-        // Save the main wallet and mint pubkey to the database
 
         Ok(AppState {
             spl_token_context,

@@ -2,4 +2,4 @@
 /test-ledger
 .env
 *.sqlite*
-*/.DS_Store
+.DS_Store

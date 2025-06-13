@@ -24,7 +24,7 @@ impl Group {
     pub async fn from_yaml_file(path: &str, tokens_amount: f64) -> anyhow::Result<Vec<Group>> {
         let content = tokio::fs::read_to_string(path).await?;
         let mut groups: Vec<Group> = serde_yaml::from_str(&content)?;
-        let _ = groups.iter_mut().for_each(|g| {
+        groups.iter_mut().for_each(|g| {
             g.spl_total = g.spl_share_percent * tokens_amount;
         });
         log::debug!("Loaded groups from YAML file: {:#?}", groups);

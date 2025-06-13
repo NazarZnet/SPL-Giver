@@ -9,21 +9,24 @@ use pretty_env_logger::env_logger::{Builder, Env};
 
 use state::AppState;
 
-use crate::schema::{Buyer, Group};
+use crate::{
+    distribution::make_shedules,
+    schema::{Buyer, Group},
+};
 
 #[get("/")]
 async fn index() -> impl Responder {
     HttpResponse::Ok().body("Spl Token Service")
 }
 
-//TODO: Check transaction send some times
-//TODO: Create database with transations history
-// TODO: Make after fall start distribution from history
+//DONE: Check transaction send some times
+//DONE: Create database with transations history
+// DONE: Make after fall start distribution from history
 // TODO: Check that group has enought tokens
 //TODO: create routes to get transaction history and all information about buyers and so on
-//TODO: create authorixation for all routes
+//TODO: create authorization for all routes
 //TODO: create documentation and api doc
-//TODO: rewrite distribute not shedule task. Create loop that will check if there are any sheduled tasks exists and run them
+//DONE: rewrite distribute not shedule task. Create loop that will check if there are any sheduled tasks exists and run them
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -33,18 +36,29 @@ async fn main() -> std::io::Result<()> {
     let mut logger_builder = Builder::from_env(logger_env);
     logger_builder.init();
 
-    //Create buyers_list.csv. Onlu for testing
-    // let _ = state::generate_test_buyers_csv_async("buyers_list.csv", 20, 2)
+    //Create buyers_list.csv. Only for testing
+    // let _ = Buyer::generate_test_buyers_csv_async("buyers_list.csv", 5, 2)
     //     .await
     //     .map_err(|e| {
     //         log::error!("Failed to generate buyers_list.csv: {:#?}", e);
     //         std::process::exit(1);
     //     });
 
-    let state = AppState::new().await.unwrap_or_else(|e| {
-        log::error!("Failed to generate app state: {:#?}", e);
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        log::error!("DATABASE_URL is not set in environment variables");
         std::process::exit(1);
     });
+    let client_url = std::env::var("CLIENT_URL").unwrap_or_else(|_| {
+        log::error!("CLIENT_URL is not set in environment variables");
+        std::process::exit(1);
+    });
+
+    let state = AppState::new(&database_url, client_url)
+        .await
+        .unwrap_or_else(|e| {
+            log::error!("Failed to generate app state: {:#?}", e);
+            std::process::exit(1);
+        });
     log::info!("App state generated successfully");
 
     //TODO: Move this logic to external function
@@ -77,7 +91,11 @@ async fn main() -> std::io::Result<()> {
     let data = web::Data::new(state);
 
     // Run distribution in background
-    tokio::spawn(distribution::distribute_tokens(data.clone()));
+    if let Err(e) = make_shedules(data.clone()).await {
+        log::error!("Failed to make sheduled tasks: {:#?}", e);
+        std::process::exit(1);
+    }
+    tokio::spawn(distribution::start_schedule_runner(data.clone()));
 
     HttpServer::new(move || {
         App::new()

@@ -16,20 +16,39 @@
 ## How It Works
 
 1. **Initialization**
-   - (Optional) Create `.env` file and add `MAIN_WALLET` and `MINT_PUBKEY`. If these keys not provided server will create new one.
+   - Create a `.env` file and add the following variables:
+     - `MAIN_WALLET` — The admin wallet private key (base58 string). 
+     - `MINT_PUBKEY` — The SPL token mint address.
+     - `DATABASE_URL` — The SQLite database URL (e.g., `sqlite://spl_giver_history.sqlite`).
+     - `CLIENT_URL` — The Solana RPC endpoint (e.g., `http://127.0.1:8899`).
    - Groups are loaded from a YAML file.
    - Buyers are loaded from a CSV file and assigned to groups.
    - The SPL amount available to each group is calculated.
 
-2. **Initial Distribution**
+2. **Database & Migrations**
+   - The service uses SQLite for persistent storage.
+   - **Before running the server, run the database migrations** to create the necessary tables:
+     ```sh
+     cargo install sqlx-cli
+     sqlx migrate run
+     ```
+   - The main tables are:
+     - `groups` — Stores group configuration.
+     - `buyers` — Stores buyer information and their progress.
+     - `schedule` — Stores unlock schedule for each buyer (when and how much to unlock).
+     - `transactions` — Stores all token transfer attempts (success and failure) for audit/history.
+
+3. **Initial Distribution**
    - For each buyer, an associated token account is created (or checked).
    - The buyer receives the initial percentage of tokens as defined by the group.
 
-3. **Unlock Schedule**
-   - For each group, a separate scheduler is started, which distributes the next portions of tokens to all group buyers at specified intervals.
+4. **Unlock Schedule**
+   - For each group, a scheduler is started, which distributes the next portions of tokens to all group buyers at specified intervals.
+   - The scheduler runs as a background task and checks the `schedule` table every second for pending unlocks.
 
-4. **State Tracking**
+5. **State Tracking & Recovery**
    - The system tracks how many tokens each buyer has received, their remaining balance, and any errors.
+   - If the server fails or restarts, it **fetches previous schedule and transaction history from the database** and resumes processing only the pending unlocks. This ensures no double-sending and robust recovery.
 
 ---
 
@@ -65,7 +84,6 @@ wallet,paid_sol,group_id
 ## Main Endpoints
 
 - `GET /` — Service health check
-- `POST /distribute` — Starts token distribution (initial + unlock schedulers)
 
 ---
 
@@ -80,21 +98,15 @@ wallet,paid_sol,group_id
 ## Getting Started
 
 1. Install dependencies (`cargo build`)
-2. Create `groups.yaml` and `buyers_list.csv`(Optional you can uncomment in main.rs line 25 to generate it for test)) in the project root
-3. Start the server:
-   ```sh
+2. Create `groups.yaml` and `buyers_list.csv`(Optional you can uncomment in main.rs line 39 to generate it for test)) in the project root
+3. Run migrations:
+   ```bash
+   sqlx migrate run
+   ```
+4. Start the server:
+   ```bash
    cargo run
    ```
-4. Use `POST /distribute` to start token distribution
 
----
-
-## TODO / Roadmap
-
-- [x] Assign buyers to groups
-- [x] Initial token distribution
-- [x] Group unlock schedulers
-- [ ] API for buyer status
-- [ ] Store transaction and error history in a database
 
 

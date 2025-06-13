@@ -1,8 +1,9 @@
+use rand::Rng;
 use std::str::FromStr;
 use tokio_stream::StreamExt;
 
 use serde::{Deserialize, Serialize};
-use solana_sdk::pubkey::Pubkey;
+use solana_sdk::{pubkey::Pubkey, signer::Signer};
 
 fn pubkey_to_string<S>(pk: &Pubkey, s: S) -> Result<S::Ok, S::Error>
 where
@@ -30,6 +31,8 @@ pub struct Buyer {
     pub group_id: i64,
     #[serde(default)]
     pub received_spl: f64,
+    #[serde(default)]
+    pub received_percent: f64,
     #[serde(default)]
     pub pending_spl: f64,
     #[serde(default)]
@@ -64,5 +67,40 @@ impl Buyer {
             return Err(anyhow::anyhow!("No buyers found in the CSV file"));
         }
         Ok(buyers)
+    }
+
+    //Remove in production
+    pub async fn generate_test_buyers_csv_async(
+        path: &str,
+        buyers_count: usize,
+        group_count: i64,
+    ) -> anyhow::Result<()> {
+        let file = tokio::fs::File::create(path).await?;
+        let mut wtr = csv_async::AsyncSerializer::from_writer(file);
+
+        let mut rng = rand::rng();
+
+        for _ in 0..buyers_count {
+            let keypair = solana_sdk::signature::Keypair::new();
+            let wallet = keypair.pubkey();
+            let paid_sol: f64 = rng.random_range(100.0..2000.0);
+            let group_id: i64 = rng.random_range(1..=group_count);
+
+            let buyer = Buyer {
+                wallet,
+                paid_sol,
+                group_id,
+                received_spl: 0.0,
+                received_percent: 0.0,
+                pending_spl: 0.0,
+                error: None,
+                created_at: None,
+                updated_at: None,
+            };
+            wtr.serialize(buyer).await?;
+        }
+        log::info!("Test buyers CSV generated at {}", path);
+        wtr.flush().await?;
+        Ok(())
     }
 }
