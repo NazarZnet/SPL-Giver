@@ -10,7 +10,7 @@ use pretty_env_logger::env_logger::{Builder, Env};
 use state::AppState;
 
 use crate::{
-    distribution::make_shedules,
+    distribution::{check_group_token_funding, initialize_schedules},
     schema::{Buyer, Group},
 };
 
@@ -22,7 +22,7 @@ async fn index() -> impl Responder {
 //DONE: Check transaction send some times
 //DONE: Create database with transations history
 // DONE: Make after fall start distribution from history
-// TODO: Check that group has enought tokens
+// DONE: Check that group has enought tokens
 //TODO: create routes to get transaction history and all information about buyers and so on
 //TODO: create authorization for all routes
 //TODO: create documentation and api doc
@@ -62,7 +62,7 @@ async fn main() -> std::io::Result<()> {
     log::info!("App state generated successfully");
 
     //TODO: Move this logic to external function
-    let groups = Group::from_yaml_file("groups.yaml", state.spl_token_context.amount as f64)
+    let groups = Group::from_yaml_file("groups.yaml", state.spl_token_context.balance as f64)
         .await
         .unwrap_or_else(|e| {
             log::error!("Failed to load groups from YAML file: {:#?}", e);
@@ -87,11 +87,16 @@ async fn main() -> std::io::Result<()> {
             std::process::exit(1);
         });
     }
+    // Check admin ATA balance
+    if let Err(e) = check_group_token_funding(&state).await {
+        log::error!("{}", e);
+        std::process::exit(1);
+    }
 
     let data = web::Data::new(state);
 
     // Run distribution in background
-    if let Err(e) = make_shedules(data.clone()).await {
+    if let Err(e) = initialize_schedules(data.clone()).await {
         log::error!("Failed to make sheduled tasks: {:#?}", e);
         std::process::exit(1);
     }

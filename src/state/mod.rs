@@ -77,9 +77,9 @@ impl AppState {
         )
         .await?;
         log::info!("Token account: {}", token_account);
-        let amount = 10_000_000 * LAMPORTS_PER_SOL;
+        // let amount = 10_000_000 * LAMPORTS_PER_SOL;
         let spl_token_context =
-            SplTokenContext::new(client, main_wallet, mint, token_account, amount).await?;
+            SplTokenContext::new(client, main_wallet, mint, token_account).await?;
 
         let db = DbContext::new(database_url).await?;
         log::info!("Database initialized successfully!");

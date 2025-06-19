@@ -3,12 +3,31 @@ use crate::{
     state::{AppState, SplTokenContext},
 };
 use actix_web::web;
+
 use chrono::Utc;
 
 use solana_sdk::pubkey::Pubkey;
 use tokio::time::{Duration, sleep};
 
-pub async fn make_shedules(data: web::Data<AppState>) -> anyhow::Result<()> {
+pub async fn check_group_token_funding(data: &AppState) -> anyhow::Result<()> {
+    let groups = data.db.get_groups().await?;
+    for group in &groups {
+        let buyers = data.db.get_buyers_by_group(group.id).await?;
+        let total_pending: f64 = buyers.iter().map(|b| b.pending_spl).sum();
+
+        if group.spl_total < total_pending {
+            return Err(anyhow::anyhow!(
+                "Group {} does not have enough SPL tokens: group.spl_total = {}, total pending_spl for buyers = {}",
+                group.id,
+                group.spl_total,
+                total_pending
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub async fn initialize_schedules(data: web::Data<AppState>) -> anyhow::Result<()> {
     let groups = data.db.get_groups().await?;
 
     for group in groups.into_iter() {

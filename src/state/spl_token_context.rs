@@ -19,10 +19,10 @@ use spl_token_2022::{
 use spl_token_metadata_interface::state::TokenMetadata;
 pub struct SplTokenContext {
     pub mint: Pubkey,
-    token_acount: Pubkey,
+    pub token_account: Pubkey,
     pub main_wallet: Arc<Keypair>,
     pub client: RpcClient,
-    pub amount: u64,
+    pub balance: u64,
 }
 
 impl SplTokenContext {
@@ -31,25 +31,27 @@ impl SplTokenContext {
         main_wallet: Keypair,
         mint: Pubkey,
         token_account: Pubkey,
-        amount: u64,
+        // required_amount: u64,
     ) -> Result<Self> {
-        let current_token_amount = Self::get_token_account_balance(&client, &token_account).await?;
-        if current_token_amount < amount {
-            Self::mint_tokens(
-                &client,
-                &main_wallet,
-                &mint,
-                &token_account,
-                amount - current_token_amount,
-            )
-            .await?;
-        }
+        let balance = Self::get_token_account_balance(&client, &token_account).await?;
+        log::debug!("Main associated token account balance: {}", balance);
+        // // Mint the required amount of tokens (used only in test cases)
+        // if balance < required_amount {
+        //     Self::mint_tokens(
+        //         &client,
+        //         &main_wallet,
+        //         &mint,
+        //         &token_account,
+        //         required_amount - balance,
+        //     )
+        //     .await?;
+        // }
         Ok(Self {
             mint,
-            token_acount: token_account,
+            token_account,
             main_wallet: Arc::new(main_wallet),
             client,
-            amount,
+            balance,
         })
     }
     pub async fn generate_wallet(client: &RpcClient) -> Result<Keypair> {
@@ -70,7 +72,7 @@ impl SplTokenContext {
 
         Ok(wallet)
     }
-    pub async fn check_wallet_balance(client: &RpcClient, wallet: &Pubkey) -> Result<u64> {
+    pub async fn get_wallet_balance(client: &RpcClient, wallet: &Pubkey) -> Result<u64> {
         let balance = client
             .get_balance(wallet)
             .await
@@ -257,7 +259,7 @@ impl SplTokenContext {
 
         let transfer_instruction = transfer_checked(
             &token_2022_program_id(),
-            &self.token_acount,
+            &self.token_account,
             &self.mint,
             destination_token_account,
             &self.main_wallet.pubkey(),
