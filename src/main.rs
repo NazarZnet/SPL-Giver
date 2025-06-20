@@ -62,7 +62,7 @@ async fn main() -> std::io::Result<()> {
     log::info!("App state generated successfully");
 
     //TODO: Move this logic to external function
-    let groups = Group::from_yaml_file("groups.yaml", state.spl_token_context.balance as f64)
+    let groups = Group::from_yaml_file("groups.yaml", state.spl_token_context.balance)
         .await
         .unwrap_or_else(|e| {
             log::error!("Failed to load groups from YAML file: {:#?}", e);

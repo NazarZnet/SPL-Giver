@@ -13,13 +13,17 @@ pub async fn check_group_token_funding(data: &AppState) -> anyhow::Result<()> {
     let groups = data.db.get_groups().await?;
     for group in &groups {
         let buyers = data.db.get_buyers_by_group(group.id).await?;
-        let total_pending: f64 = buyers.iter().map(|b| b.pending_spl).sum();
-
-        if group.spl_total < total_pending {
+        let total_pending = buyers.iter().map(|b| b.pending_spl_lamports).sum();
+        log::info!(
+            "Group total lamports: {} total pending lamports: {}",
+            group.spl_total_lamports,
+            total_pending
+        );
+        if group.spl_total_lamports < total_pending {
             return Err(anyhow::anyhow!(
-                "Group {} does not have enough SPL tokens: group.spl_total = {}, total pending_spl for buyers = {}",
+                "Group {} does not have enough SPL tokens: group.spl_total_lamports = {}, total pending_spl_lamports for buyers = {}",
                 group.id,
-                group.spl_total,
+                group.spl_total_lamports,
                 total_pending
             ));
         }
@@ -34,20 +38,20 @@ pub async fn initialize_schedules(data: web::Data<AppState>) -> anyhow::Result<(
         log::info!("Distributing tokens for group: {}", group.id);
         let buyers = data.db.get_buyers_by_group(group.id).await?;
         for buyer in &buyers {
-            let buyer_spl = buyer.paid_sol / group.spl_price;
-            let already_received = buyer.received_spl;
+            let buyer_spl = buyer.paid_lamports / group.spl_price_lamports;
+            let already_received_lamports = buyer.received_spl_lamports;
 
             let mut remaining_percent = 1.0 - buyer.received_percent;
             let mut current_percent = buyer.received_percent;
-            let mut remaining_spl = (buyer_spl - already_received).max(0.0);
+            let mut remaining_spl_lamports = buyer_spl - already_received_lamports;
 
-            if remaining_spl <= 0.0 || remaining_percent <= 0.0 {
+            if remaining_spl_lamports == 0 || remaining_percent <= 0.0 {
                 log::info!(
-                    "Buyer {} already received all tokens: received_spl {}, paid_sol {}, spl_price {}",
+                    "Buyer {} already received all tokens: received_spl_lamports {}, paid_lamports {}, spl_price_lamports {}",
                     buyer.wallet,
-                    buyer.received_spl,
-                    buyer.paid_sol,
-                    group.spl_price
+                    buyer.received_spl_lamports,
+                    buyer.paid_lamports,
+                    group.spl_price_lamports
                 );
                 continue;
             }
@@ -67,43 +71,43 @@ pub async fn initialize_schedules(data: web::Data<AppState>) -> anyhow::Result<(
             let mut unlocks = vec![];
 
             // If buyer hasn't received anything, schedule initial unlock first
-            if already_received == 0.0 {
+            if already_received_lamports == 0 {
                 let percent = group.initial_unlock_percent.min(remaining_percent);
-                let initial_amount = buyer_spl * percent;
+                let initial_amount = (buyer_spl as f64 * percent).round() as u64;
                 current_percent += percent;
                 let percent_key = (current_percent * 1_000_000.0).round() as u64;
                 if !existing_percents.contains(&percent_key) {
                     unlocks.push((unlock_time, initial_amount, current_percent));
                 }
-                remaining_spl -= initial_amount;
+                remaining_spl_lamports -= initial_amount;
                 remaining_percent -= percent;
             }
 
             // Schedule future unlocks for the rest
-            while remaining_spl > 0.0 && remaining_percent > 0.0 {
+            while remaining_spl_lamports > 0 && remaining_percent > 0.0 {
                 unlock_time += chrono::Duration::seconds(group.unlock_interval_seconds);
                 let percent = group.unlock_percent_per_interval.min(remaining_percent);
-                let interval_amount = buyer_spl * percent;
+                let interval_amount = (buyer_spl as f64 * percent).round() as u64;
                 current_percent += percent;
                 let percent_key = (current_percent * 1_000_000.0).round() as u64;
 
                 if !existing_percents.contains(&percent_key) {
                     unlocks.push((
                         unlock_time,
-                        interval_amount.min(remaining_spl),
+                        interval_amount.min(remaining_spl_lamports),
                         current_percent,
                     ));
                 }
-                remaining_spl -= interval_amount.min(remaining_spl);
+                remaining_spl_lamports -= interval_amount.min(remaining_spl_lamports);
                 remaining_percent -= percent;
             }
 
-            for (scheduled_at, amount, percent) in unlocks {
+            for (scheduled_at, amount_lamports, percent) in unlocks {
                 let schedule = Schedule::new(
                     group.id,
                     buyer.wallet.to_string(),
                     scheduled_at,
-                    amount,
+                    amount_lamports,
                     percent,
                 );
 
@@ -127,11 +131,11 @@ pub async fn start_schedule_runner(data: web::Data<AppState>) {
                 Ok(schedules) => {
                     for schedule in schedules {
                         log::info!(
-                            "Schedule ready: id={:?} buyer={} group={} amount={} scheduled_at={}",
+                            "Schedule ready: id={:?} buyer={} group={} amount_lamports={} scheduled_at={}",
                             schedule.id,
                             schedule.buyer_wallet,
                             schedule.group_id,
-                            schedule.amount,
+                            schedule.amount_lamports,
                             schedule.scheduled_at
                         );
                         process_schedule(&data, &schedule, 9).await;
@@ -157,8 +161,6 @@ pub async fn transfer_tokens_for_schedule(
     buyer: &Buyer,
     token_decimals: u8,
 ) -> anyhow::Result<()> {
-    let to_unlock = (schedule.amount * 10f64.powi(token_decimals as i32)).round() as u64;
-
     // Get or create ATA
     let ata = crate::state::SplTokenContext::get_or_create_associated_token_account(
         &data.spl_token_context.client,
@@ -174,7 +176,7 @@ pub async fn transfer_tokens_for_schedule(
     if let Err(e) = try_transfer_with_retries(
         &data.spl_token_context,
         &ata,
-        to_unlock,
+        schedule.amount_lamports,
         token_decimals,
         &buyer.wallet.to_string(),
     )
@@ -184,8 +186,8 @@ pub async fn transfer_tokens_for_schedule(
     }
 
     log::info!(
-        "Transferred {} tokens to {} for schedule id={:?}",
-        schedule.amount,
+        "Transferred {} token lamports to {} for schedule id={:?}",
+        schedule.amount_lamports,
         buyer.wallet,
         schedule.id,
     );
@@ -262,7 +264,7 @@ async fn process_schedule(data: &AppState, schedule: &Schedule, token_decimals: 
     let mut transaction = Transaction::new(
         schedule.buyer_wallet.clone(),
         schedule.group_id,
-        schedule.amount,
+        schedule.amount_lamports,
         schedule.percent,
         "success".to_string(),
     );
@@ -281,22 +283,22 @@ async fn process_schedule(data: &AppState, schedule: &Schedule, token_decimals: 
             }
 
             // Update buyer's received_spl, received_percent, pending_spl
-            let buyer_spl = buyer.paid_sol / group.spl_price;
-            let received_spl = buyer.received_spl + schedule.amount;
-            let pending_spl = (buyer_spl - received_spl).max(0.0);
+            let buyer_spl_lamports = buyer.paid_lamports / group.spl_price_lamports;
+            let received_spl_lamports = buyer.received_spl_lamports + schedule.amount_lamports;
+            let pending_spl = buyer_spl_lamports - received_spl_lamports;
             let received_percent = schedule.percent;
 
             if let Err(e) = data
                 .db
                 .update_buyer(
                     &buyer.wallet.to_string(),
-                    received_spl,
+                    received_spl_lamports,
                     received_percent,
                     pending_spl,
                 )
                 .await
             {
-                //TODO: Improve error handling to try again update buyer
+                //TODO: Improve error handling to try again update buyer. If no save errors for admin in another storage
                 let error_message = format!(
                     "Failed to update buyer after transfer for schedule id={:?}: {}",
                     schedule.id, e
@@ -317,8 +319,8 @@ async fn process_schedule(data: &AppState, schedule: &Schedule, token_decimals: 
         }
         Err(e) => {
             let error_message = format!(
-                "Failed to transfer tokens for schedule id={:?} buyer={} group={} amount={}: {}",
-                schedule.id, schedule.buyer_wallet, schedule.group_id, schedule.amount, e
+                "Failed to transfer tokens for schedule id={:?} buyer={} group={} amount_lamports={}: {}",
+                schedule.id, schedule.buyer_wallet, schedule.group_id, schedule.amount_lamports, e
             );
             log::error!("{}", error_message);
 

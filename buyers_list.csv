@@ -1,6 +1,6 @@
-wallet,paid_sol,group_id,received_spl,received_percent,pending_spl,error,created_at,updated_at
-2TkEip7WpneS9Dae2iYN3YB1NhDJsEfrYELk2QhLZFPQ,1386.9813628872992,1,0.0,0.0,0.0,,,
-GGBwt4S1MNP6XKRtvcqJCHBVoTbBjhybLRh6F6t5Rwx7,486.18366651921554,2,0.0,0.0,0.0,,,
-5jWXTGRTn2UjAxAB4jaJDwtUjLqtmwm7CEZLheP2GrC1,1749.8668633305506,1,0.0,0.0,0.0,,,
-FPyKsVhCfmRkPAsrALs5BMSyH1Ee21zpv4FGSby8BbNs,1589.7450454827417,1,0.0,0.0,0.0,,,
-EtqcRSKxU3Yq83b3XBFsLixkfGW5zrBCULkrTceytzaC,1791.4193561541201,2,0.0,0.0,0.0,,,
+wallet,paid_lamports,group_id,received_spl_lamports,received_percent,pending_spl_lamports,error,created_at,updated_at
+3yx2PZuH8zetCWZyoPVtEf6ACurXm18AUnZ44fCkzKuH,1263482836644,2,0,0.0,0,,,
+7ayUn4wmQUqRL5xzVUdSCpotvw1Pq29VHthqfE2jY2zA,1440346061908,1,0,0.0,0,,,
+BYqHgvdjrmGcGniQvXrFtvgoy7ZfvzXz57gF2BEwn1iY,841651821152,2,0,0.0,0,,,
+6myZ4DRVpqbu4wrjXpSnrPd7jCxFkKYLeeERsgSaUPwv,695513329220,2,0,0.0,0,,,
+F6QXksNwH7BKHJ2dhqdDhrREX8Nmwyg5iGuQY94CRczD,1223430875116,1,0,0.0,0,,,

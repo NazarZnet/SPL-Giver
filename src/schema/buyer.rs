@@ -3,7 +3,7 @@ use std::str::FromStr;
 use tokio_stream::StreamExt;
 
 use serde::{Deserialize, Serialize};
-use solana_sdk::{pubkey::Pubkey, signer::Signer};
+use solana_sdk::{native_token::LAMPORTS_PER_SOL, pubkey::Pubkey, signer::Signer};
 
 fn pubkey_to_string<S>(pk: &Pubkey, s: S) -> Result<S::Ok, S::Error>
 where
@@ -27,14 +27,14 @@ pub struct Buyer {
         deserialize_with = "pubkey_from_string"
     )]
     pub wallet: Pubkey,
-    pub paid_sol: f64,
+    pub paid_lamports: u64,
     pub group_id: i64,
     #[serde(default)]
-    pub received_spl: f64,
+    pub received_spl_lamports: u64,
     #[serde(default)]
     pub received_percent: f64,
     #[serde(default)]
-    pub pending_spl: f64,
+    pub pending_spl_lamports: u64,
     #[serde(default)]
     pub error: Option<String>,
     #[serde(default)]
@@ -83,16 +83,17 @@ impl Buyer {
         for _ in 0..buyers_count {
             let keypair = solana_sdk::signature::Keypair::new();
             let wallet = keypair.pubkey();
-            let paid_sol: f64 = rng.random_range(100.0..2000.0);
+            let paid_lamports: u64 =
+                rng.random_range(100 * LAMPORTS_PER_SOL..2000 * LAMPORTS_PER_SOL);
             let group_id: i64 = rng.random_range(1..=group_count);
 
             let buyer = Buyer {
                 wallet,
-                paid_sol,
+                paid_lamports,
                 group_id,
-                received_spl: 0.0,
+                received_spl_lamports: 0,
                 received_percent: 0.0,
-                pending_spl: 0.0,
+                pending_spl_lamports: 0,
                 error: None,
                 created_at: None,
                 updated_at: None,
