@@ -3,7 +3,7 @@ pub struct Transaction {
     pub id: i64,
     pub buyer_wallet: String,
     pub group_id: i64,
-    pub amount: f64,
+    pub amount_lamports: u64,
     pub percent: f64,
     pub status: String, // "pending", "success", "failed"
     pub error_message: Option<String>,
@@ -15,7 +15,7 @@ impl Transaction {
     pub fn new(
         buyer_wallet: String,
         group_id: i64,
-        amount: f64,
+        amount_lamports: u64,
         percent: f64,
         status: String,
     ) -> Self {
@@ -23,7 +23,7 @@ impl Transaction {
             id: 0, // Default value, will be set by the database
             buyer_wallet,
             group_id,
-            amount,
+            amount_lamports,
             percent,
             status,
             error_message: None,

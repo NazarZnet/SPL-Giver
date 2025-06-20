@@ -1,13 +1,15 @@
--- Add up migration script here
-CREATE TABLE IF NOT EXISTS schedule (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    buyer_wallet TEXT NOT NULL REFERENCES buyers(wallet) ON DELETE CASCADE,
+-- Schedule table for MySQL
+CREATE TABLE IF NOT EXISTS `schedule` (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    group_id BIGINT  NOT NULL,
+    buyer_wallet VARCHAR(50) NOT NULL,
     scheduled_at DATETIME NOT NULL,
-    amount REAL NOT NULL,
-    percent REAL NOT NULL DEFAULT 0.0,
-    status TEXT NOT NULL DEFAULT 'pending', -- 'pending',  'success', 'failed'
+    amount_lamports BIGINT UNSIGNED NOT NULL,
+    percent DOUBLE NOT NULL DEFAULT 0.0,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- 'pending', 'success', 'failed'
     error_message TEXT,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE,
+    FOREIGN KEY (buyer_wallet) REFERENCES `buyers`(wallet) ON DELETE CASCADE
 );

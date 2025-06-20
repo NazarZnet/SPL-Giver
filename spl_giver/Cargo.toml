@@ -1,0 +1,21 @@
+[package]
+name = "spl_giver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cli = { path = "../cli" }
+common = { path = "../common" }
+
+actix-web = "4.10.2"
+tokio = { version = "1.45.0", features = ["full"] }
+tokio-stream = "0.1.17"
+
+log = "0.4.27"
+pretty_env_logger = "0.5.0"
+
+anyhow = "1.0.98"
+dotenv = "0.15.0"
+
+solana-sdk = "2.2.2"
+chrono = "0.4.41"

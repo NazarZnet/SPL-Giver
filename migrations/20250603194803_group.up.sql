@@ -1,13 +1,12 @@
--- Groups table
-CREATE TABLE IF NOT EXISTS groups (
-    id INTEGER PRIMARY KEY NOT NULL ,
-    spl_share_percent REAL NOT NULL,
-    spl_total REAL NOT NULL,
-    spl_price REAL NOT NULL,
-    initial_unlock_percent REAL NOT NULL,
-    unlock_interval_seconds INTEGER NOT NULL,
-    unlock_percent_per_interval REAL NOT NULL,
-    unlock_task_spawned BOOLEAN NOT NULL DEFAULT FALSE,
+-- Groups table for MySQL
+CREATE TABLE IF NOT EXISTS `groups` (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    spl_share_percent DOUBLE NOT NULL,
+    spl_total_lamports BIGINT UNSIGNED NOT NULL,
+    spl_price_lamports BIGINT UNSIGNED NOT NULL, 
+    initial_unlock_percent DOUBLE NOT NULL,
+    unlock_interval_seconds BIGINT NOT NULL,
+    unlock_percent_per_interval DOUBLE NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
