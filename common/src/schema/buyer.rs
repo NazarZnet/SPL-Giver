@@ -87,7 +87,7 @@ impl Buyer {
     //Remove in production
     pub async fn generate_test_buyers_csv_async(
         path: &str,
-        buyers_count: usize,
+        buyers_count: i64,
         group_count: i64,
     ) -> anyhow::Result<()> {
         let file = tokio::fs::File::create(path).await?;

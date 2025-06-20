@@ -1,10 +1,8 @@
-use crate::{
-    schema::{Buyer, Schedule, Transaction},
-    state::{AppState, SplTokenContext},
-};
+use crate::state::AppState;
 use actix_web::web;
-
 use chrono::Utc;
+use common::SplToken;
+use common::{Buyer, Schedule, Transaction};
 
 use solana_sdk::pubkey::Pubkey;
 use tokio::time::{Duration, sleep};
@@ -162,11 +160,11 @@ pub async fn transfer_tokens_for_schedule(
     token_decimals: u8,
 ) -> anyhow::Result<()> {
     // Get or create ATA
-    let ata = crate::state::SplTokenContext::get_or_create_associated_token_account(
-        &data.spl_token_context.client,
+    let ata = SplToken::get_or_create_associated_token_account(
+        &data.spl_token.client,
         &buyer.wallet,
-        &data.spl_token_context.main_wallet,
-        &data.spl_token_context.mint,
+        &data.spl_token.main_wallet,
+        &data.spl_token.mint,
     )
     .await
     .map_err(|e| anyhow::anyhow!("ATA error: {}", e))?;
@@ -174,7 +172,7 @@ pub async fn transfer_tokens_for_schedule(
     // Transfer with retries
 
     if let Err(e) = try_transfer_with_retries(
-        &data.spl_token_context,
+        &data.spl_token,
         &ata,
         schedule.amount_lamports,
         token_decimals,
@@ -195,7 +193,7 @@ pub async fn transfer_tokens_for_schedule(
     Ok(())
 }
 pub async fn try_transfer_with_retries(
-    spl_token_context: &SplTokenContext,
+    spl_token_context: &SplToken,
     ata: &Pubkey,
     to_unlock: u64,
     token_decimals: u8,

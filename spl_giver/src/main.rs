@@ -1,18 +1,15 @@
 mod distribution;
-mod schema;
+
 mod state;
 
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, middleware::Logger, web};
-
+use common::{Buyer, Group};
 use dotenv::dotenv;
 use pretty_env_logger::env_logger::{Builder, Env};
 
 use state::AppState;
 
-use crate::{
-    distribution::{check_group_token_funding, initialize_schedules},
-    schema::{Buyer, Group},
-};
+use crate::distribution::{check_group_token_funding, initialize_schedules};
 
 #[get("/")]
 async fn index() -> impl Responder {
@@ -32,17 +29,13 @@ async fn index() -> impl Responder {
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
 
+    if cli::run_cli().await {
+        return Ok(());
+    }
+
     let logger_env = Env::default().default_filter_or("debug");
     let mut logger_builder = Builder::from_env(logger_env);
     logger_builder.init();
-
-    //Create buyers_list.csv. Only for testing
-    // let _ = Buyer::generate_test_buyers_csv_async("buyers_list.csv", 5, 2)
-    //     .await
-    //     .map_err(|e| {
-    //         log::error!("Failed to generate buyers_list.csv: {:#?}", e);
-    //         std::process::exit(1);
-    //     });
 
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
         log::error!("DATABASE_URL is not set in environment variables");
@@ -53,7 +46,16 @@ async fn main() -> std::io::Result<()> {
         std::process::exit(1);
     });
 
-    let state = AppState::new(&database_url, client_url)
+    let wallet = std::env::var("MAIN_WALLET").unwrap_or_else(|_| {
+        log::error!("MAIN_WALLET is not set in environment variables");
+        std::process::exit(1);
+    });
+    let mint = std::env::var("MINT_PUBKEY").unwrap_or_else(|_| {
+        log::error!("MINT_PUBKEY is not set in environment variables");
+        std::process::exit(1);
+    });
+
+    let state = AppState::new(&database_url, &client_url, &wallet, &mint)
         .await
         .unwrap_or_else(|e| {
             log::error!("Failed to generate app state: {:#?}", e);
@@ -62,7 +64,7 @@ async fn main() -> std::io::Result<()> {
     log::info!("App state generated successfully");
 
     //TODO: Move this logic to external function
-    let groups = Group::from_yaml_file("groups.yaml", state.spl_token_context.balance)
+    let groups = Group::from_yaml_file("groups.yaml", state.spl_token.balance)
         .await
         .unwrap_or_else(|e| {
             log::error!("Failed to load groups from YAML file: {:#?}", e);

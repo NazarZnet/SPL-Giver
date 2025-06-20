@@ -6,19 +6,14 @@ use sqlx::{MySqlPool, mysql::MySqlConnectOptions};
 
 use crate::schema::{Buyer, Group, Schedule, Transaction};
 
-pub struct DbContext {
+pub struct Database {
     pool: MySqlPool,
 }
-impl DbContext {
+impl Database {
     pub async fn new(database_url: &str) -> anyhow::Result<Self> {
         let options = MySqlConnectOptions::from_str(database_url)
             .context("Failed to create SQLite connect options")?;
         let pool = MySqlPool::connect_with(options).await?;
-        //Apply migrations
-        sqlx::migrate!()
-            .run(&pool)
-            .await
-            .context("Database migration error")?;
         Ok(Self { pool })
     }
     pub async fn save_group(&self, group: &Group) -> anyhow::Result<()> {
