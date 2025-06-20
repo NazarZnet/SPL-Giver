@@ -5,6 +5,8 @@ use tokio_stream::StreamExt;
 use serde::{Deserialize, Serialize};
 use solana_sdk::{native_token::LAMPORTS_PER_SOL, pubkey::Pubkey, signer::Signer};
 
+use crate::schema::Group;
+
 fn pubkey_to_string<S>(pk: &Pubkey, s: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -44,21 +46,34 @@ pub struct Buyer {
 }
 
 impl Buyer {
-    pub async fn load_from_csv(path: &str) -> anyhow::Result<Vec<Buyer>> {
+    pub async fn load_from_csv(path: &str, groups: &[Group]) -> anyhow::Result<Vec<Buyer>> {
         let content = tokio::fs::read_to_string(path).await?;
         let mut rdr = csv_async::AsyncReaderBuilder::new()
             .has_headers(true)
             .create_deserializer(content.as_bytes());
         let mut records = rdr.deserialize::<Buyer>();
         let mut buyers = Vec::new();
-        while let Some(buyer) = records.next().await {
-            match buyer {
-                Ok(buyer) => {
+        while let Some(buyer_result) = records.next().await {
+            match buyer_result {
+                Ok(mut buyer) => {
+                    if buyer.pending_spl_lamports == 0 {
+                        if let Some(group) = groups.iter().find(|g| g.id == buyer.group_id) {
+                            buyer.pending_spl_lamports =
+                                buyer.paid_lamports / group.spl_price_lamports;
+                        } else {
+                            log::warn!(
+                                "Group not found for buyer: {} group_id={}",
+                                buyer.wallet,
+                                buyer.group_id
+                            );
+                        }
+                    }
+
                     buyers.push(buyer);
                 }
                 Err(e) => {
                     log::error!("Error deserializing buyer: {}", e);
-                    continue; // Skip this record
+                    continue;
                 }
             }
         }

@@ -68,6 +68,13 @@ async fn main() -> std::io::Result<()> {
             log::error!("Failed to load groups from YAML file: {:#?}", e);
             std::process::exit(1);
         });
+    let buyers = Buyer::load_from_csv("buyers_list.csv", &groups)
+        .await
+        .unwrap_or_else(|e| {
+            log::error!("Failed to load buyers from CSV file: {:#?}", e);
+            std::process::exit(1);
+        });
+
     for group in groups {
         state.db.save_group(&group).await.unwrap_or_else(|e| {
             log::error!("Failed to save group to database: {:#?}", e);
@@ -75,12 +82,6 @@ async fn main() -> std::io::Result<()> {
         });
     }
 
-    let buyers = Buyer::load_from_csv("buyers_list.csv")
-        .await
-        .unwrap_or_else(|e| {
-            log::error!("Failed to load buyers from CSV file: {:#?}", e);
-            std::process::exit(1);
-        });
     for buyer in buyers {
         state.db.save_buyer(&buyer).await.unwrap_or_else(|e| {
             log::error!("Failed to save buyer to database: {:#?}", e);
