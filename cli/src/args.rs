@@ -34,6 +34,7 @@ pub enum Commands {
     ///
     /// This command mints a specified amount of tokens to a wallet using a given mint.
     /// For testing purposes only.
+    /// Note: The amount should be specified in the smallest units (according to the mint's decimals).
     MintTokens(MintTokensArgs),
 }
 
@@ -57,6 +58,10 @@ pub struct CreateMintArgs {
     /// Base58-encoded wallet keypair (for testing only)
     #[arg(short, long, help = "Base58-encoded wallet keypair")]
     pub wallet: String,
+
+    /// Number of decimals for the mint (for testing only)
+    #[arg(short, long, help = "Number of decimals for the new mint")]
+    pub decimals: u8,
 }
 
 #[derive(ClapArgs, Debug)]

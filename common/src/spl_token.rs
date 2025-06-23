@@ -91,7 +91,11 @@ impl SplToken {
         Ok(balance)
     }
 
-    pub async fn create_mint(client: &RpcClient, fee_payer: &Keypair) -> Result<Pubkey> {
+    pub async fn create_mint(
+        client: &RpcClient,
+        fee_payer: &Keypair,
+        decimals: u8,
+    ) -> Result<Pubkey> {
         let recent_blockhash = client.get_latest_blockhash().await?;
         let mint = Keypair::new();
 
@@ -139,7 +143,7 @@ impl SplToken {
             &mint.pubkey(),
             &fee_payer.pubkey(),
             Some(&fee_payer.pubkey()),
-            9, // decimals
+            decimals,
         )?;
 
         let metadata_instruction = spl_token_metadata_interface::instruction::initialize(

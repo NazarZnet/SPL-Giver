@@ -37,7 +37,13 @@ pub async fn run_cli() -> bool {
         Some(Commands::CreateMint(create_mint_args)) => {
             match get_client_url() {
                 Ok(client_url) => {
-                    match generate_mint(&client_url, &create_mint_args.wallet).await {
+                    match generate_mint(
+                        &client_url,
+                        &create_mint_args.wallet,
+                        create_mint_args.decimals,
+                    )
+                    .await
+                    {
                         Ok(mint_str) => println!(
                             "Mint token successfully generated! Base58 Pubkey: {}",
                             mint_str
@@ -131,11 +137,11 @@ async fn generate_main_wallet(client_url: &str) -> anyhow::Result<String> {
     Ok(wallet_str)
 }
 
-/// Creates a new SPL mint using the provided wallet keypair string and returns the mint's base58 pubkey.
-async fn generate_mint(client_url: &str, wallet_str: &str) -> anyhow::Result<String> {
+/// Creates a new SPL mint using the provided wallet keypair string and mint decimals. Returns the mint's base58 pubkey.
+async fn generate_mint(client_url: &str, wallet_str: &str, decimals: u8) -> anyhow::Result<String> {
     let client = SplToken::connect(client_url).await;
     let wallet = SplToken::keypair_from_str(wallet_str);
-    let mint = SplToken::create_mint(&client, &wallet).await?;
+    let mint = SplToken::create_mint(&client, &wallet, decimals).await?;
     let mint_str = mint.to_string();
     Ok(mint_str)
 }
