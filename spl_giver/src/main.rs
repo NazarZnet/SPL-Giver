@@ -18,8 +18,9 @@ use state::AppState;
 //DONE: Create database with transations history
 // DONE: Make after fall start distribution from history
 // DONE: Check that group has enought tokens
-//TODO: create routes to get transaction history and all information about buyers and so on
+//DONE: create routes to get transaction history and all information about buyers and so on
 //DONE: create authorization for all routes
+//TODO: Create route to try again transafer failed transactions
 //TODO: create documentation and api doc
 //DONE: rewrite distribute not shedule task. Create loop that will check if there are any sheduled tasks exists and run them
 
@@ -129,19 +130,27 @@ async fn main() -> std::io::Result<()> {
             .service(handlers::login)
             .use_jwt(
                 authority,
-                web::scope("").service(handlers::index).use_state_guard(
-                    |user: User| async move {
-                        if user.is_superuser {
-                            Ok(())
-                        } else {
-                            Err(InternalError::new(
-                                "You are not an Admin",
-                                StatusCode::UNAUTHORIZED,
-                            ))
-                        }
-                    },
-                    web::scope("").service(handlers::index),
-                ),
+                web::scope("")
+                    .service(handlers::index)
+                    .service(handlers::get_transactions)
+                    .service(handlers::get_schedule)
+                    .service(handlers::get_buyer_by_wallet)
+                    .service(handlers::get_buyers)
+                    .service(handlers::get_all_groups)
+                    .service(handlers::get_group_by_id)
+                    .use_state_guard(
+                        |user: User| async move {
+                            if user.is_superuser {
+                                Ok(())
+                            } else {
+                                Err(InternalError::new(
+                                    "You are not an Admin",
+                                    StatusCode::UNAUTHORIZED,
+                                ))
+                            }
+                        },
+                        web::scope("").service(handlers::index),
+                    ),
             )
     })
     .bind(("127.0.0.1", 8080))?

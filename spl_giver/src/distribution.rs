@@ -8,7 +8,7 @@ use solana_sdk::pubkey::Pubkey;
 use tokio::time::{Duration, sleep};
 
 pub async fn check_group_token_funding(data: &AppState) -> anyhow::Result<()> {
-    let groups = data.db.get_groups().await?;
+    let groups = data.db.get_all_groups().await?;
     for group in &groups {
         let buyers = data.db.get_buyers_by_group(group.id).await?;
         let total_pending = buyers.iter().map(|b| b.pending_spl_lamports).sum();
@@ -30,7 +30,7 @@ pub async fn check_group_token_funding(data: &AppState) -> anyhow::Result<()> {
 }
 
 pub async fn initialize_schedules(data: web::Data<AppState>) -> anyhow::Result<()> {
-    let groups = data.db.get_groups().await?;
+    let groups = data.db.get_all_groups().await?;
 
     for group in groups.into_iter() {
         log::info!("Distributing tokens for group: {}", group.id);

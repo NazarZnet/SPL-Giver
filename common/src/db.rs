@@ -43,7 +43,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_groups(&self) -> anyhow::Result<Vec<Group>> {
+    pub async fn get_all_groups(&self) -> anyhow::Result<Vec<Group>> {
         let groups = sqlx::query_as!(
             Group,
             r#"
@@ -55,6 +55,7 @@ impl Database {
         .context("Failed to get all groups from database")?;
         Ok(groups)
     }
+    //TODO: Rewrite to return Option if success
     pub async fn get_group(&self, group_id: i64) -> anyhow::Result<Group> {
         let row = sqlx::query_as!(
             Group,
@@ -175,6 +176,35 @@ impl Database {
         Ok(buyer)
     }
 
+    pub async fn get_all_buyers(&self) -> anyhow::Result<Vec<Buyer>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT * FROM `buyers`;
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to get all buyers")?;
+
+        let buyers = rows
+            .into_iter()
+            .map(|row| Buyer {
+                wallet: Pubkey::from_str(&row.wallet)
+                    .map_err(|_| sqlx::Error::Decode("Invalid Pubkey".into()))
+                    .unwrap(), // handle error as needed
+                paid_lamports: row.paid_lamports,
+                group_id: row.group_id,
+                received_spl_lamports: row.received_spl_lamports,
+                received_percent: row.received_percent,
+                pending_spl_lamports: row.pending_spl_lamports,
+                error: row.error,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+            })
+            .collect();
+        Ok(buyers)
+    }
+
     pub async fn save_transaction(&self, transaction: Transaction) -> anyhow::Result<()> {
         sqlx::query!(
             r#"
@@ -197,15 +227,19 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_failed_transactions(&self) -> anyhow::Result<Vec<Transaction>> {
+    pub async fn get_transactions_by_status(
+        &self,
+        status: &str,
+    ) -> anyhow::Result<Vec<Transaction>> {
         let transactions = sqlx::query_as!(
             Transaction,
             r#"
             SELECT
                 *
             FROM `transactions`
-            WHERE status = 'failed'
-            "#
+            WHERE status = ?
+            "#,
+            status
         )
         .fetch_all(&self.pool)
         .await
