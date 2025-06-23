@@ -8,6 +8,10 @@ cli = { path = "../cli" }
 common = { path = "../common" }
 
 actix-web = "4.10.2"
+actix-jwt-auth-middleware = "0.5.0"
+actix-state-guards = "0.1.0"
+
+
 tokio = { version = "1.45.0", features = ["full"] }
 tokio-stream = "0.1.17"
 
@@ -19,3 +23,7 @@ dotenv = "0.15.0"
 
 solana-sdk = "2.2.2"
 chrono = "0.4.41"
+serde = { version = "1.0.219", features = ["derive"] }
+
+ed25519-compact = "2.1.1"
+jwt-compact = { version = "0.8.0", features = ["ed25519-compact"] }

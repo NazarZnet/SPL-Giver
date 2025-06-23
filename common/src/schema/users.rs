@@ -1,11 +1,14 @@
 use anyhow::anyhow;
 use argon2::password_hash::{SaltString, rand_core::OsRng};
-use argon2::{Argon2, PasswordHasher};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use chrono::NaiveDateTime;
 use fancy_regex::Regex;
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(
+    Debug, Clone, sqlx::FromRow, Serialize, Deserialize, actix_jwt_auth_middleware::FromRequest,
+)]
 pub struct User {
     pub id: i64,
     pub username: String,
@@ -55,6 +58,14 @@ impl User {
             created_at: None, //set by DB
             updated_at: None, //set by DB
         })
+    }
+
+    pub fn verify_password(&self, password: &str) -> anyhow::Result<()> {
+        let hash = PasswordHash::new(&self.password_hash)
+            .map_err(|e| anyhow!("Failed to generate passped hash: {}", e))?;
+        Argon2::default()
+            .verify_password(password.as_bytes(), &hash)
+            .map_err(|e| anyhow!("Password not match: {}", e))
     }
 }
 
