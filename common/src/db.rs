@@ -4,7 +4,10 @@ use anyhow::Context;
 use solana_sdk::pubkey::Pubkey;
 use sqlx::{MySqlPool, mysql::MySqlConnectOptions};
 
-use crate::schema::{Buyer, Group, Schedule, Transaction};
+use crate::{
+    User,
+    schema::{Buyer, Group, Schedule, Transaction},
+};
 
 pub struct Database {
     pool: MySqlPool,
@@ -358,5 +361,44 @@ impl Database {
         .context(format!("Failed to delete schedule with id {}", schedule_id))?;
 
         Ok(())
+    }
+    pub async fn add_user(&self, user: &User) -> anyhow::Result<()> {
+        sqlx::query!(
+            r#"
+            INSERT INTO users (username, email, password_hash, is_superuser)
+            VALUES (?, ?, ?, ?)
+            "#,
+            user.username,
+            user.email,
+            user.password_hash,
+            user.is_superuser,
+        )
+        .execute(&self.pool)
+        .await
+        .context("Failed to add user to database")?;
+        Ok(())
+    }
+
+    pub async fn get_user(&self, username: &str) -> anyhow::Result<User> {
+        let user = sqlx::query_as!(
+            User,
+            r#"
+            SELECT 
+                id, 
+                username, 
+                email, 
+                password_hash, 
+                is_superuser as `is_superuser: bool`, 
+                created_at, 
+                updated_at
+            FROM users
+            WHERE username = ?
+            "#,
+            username
+        )
+        .fetch_one(&self.pool)
+        .await
+        .context(format!("Failed to get user with username '{}'", username))?;
+        Ok(user)
     }
 }

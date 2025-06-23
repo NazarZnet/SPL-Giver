@@ -26,17 +26,6 @@ pub struct SplToken {
     pub balance: u64,
 }
 
-// // Mint the required amount of tokens (used only in test cases)
-// if balance < required_amount {
-//     Self::mint_tokens(
-//         &client,
-//         &main_wallet,
-//         &mint,
-//         &token_account,
-//         required_amount - balance,
-//     )
-//     .await?;
-// }
 impl SplToken {
     pub async fn new(client_url: &str, wallet: &str, mint: &str) -> Result<Self> {
         let client =

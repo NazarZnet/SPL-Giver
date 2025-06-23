@@ -2,7 +2,7 @@ mod args;
 
 pub use args::{Args, Commands, CreateSuperuserArgs};
 use clap::Parser;
-use common::{Buyer, SplToken};
+use common::{Buyer, Database, SplToken, User};
 
 /// Runs the CLI command parser and executes the selected command.
 /// Returns true if a CLI command was handled, false otherwise.
@@ -10,11 +10,15 @@ pub async fn run_cli() -> bool {
     let args = Args::parse();
     match &args.command {
         Some(Commands::CreateSuperuser(superuser_args)) => {
-            println!(
-                "CreateSuperuser command received:\n  username: {}\n  email: {}\n  password: {}",
-                superuser_args.username, superuser_args.email, superuser_args.password
-            );
-            // TODO: Implement superuser creation logic here.
+            if let Err(e) = create_superuser(
+                &superuser_args.username,
+                &superuser_args.email,
+                &superuser_args.password,
+            )
+            .await
+            {
+                eprintln!("Failed to create superuser: {e}");
+            }
             true
         }
         Some(Commands::CreateWallet) => {
@@ -83,6 +87,34 @@ pub async fn run_cli() -> bool {
             false
         }
     }
+}
+
+/// Creates a superuser: validates input, hashes password, checks for duplicates, and saves to DB.
+async fn create_superuser(username: &str, email: &str, password: &str) -> anyhow::Result<()> {
+    // Validate and hash
+    let user = User::new(username, email, password, true)
+        .map_err(|e| anyhow::anyhow!("Validation error: {e}"))?;
+
+    // Connect to DB (adjust as needed for your project)
+    let database_url =
+        std::env::var("DATABASE_URL").map_err(|_| anyhow::anyhow!("DATABASE_URL not set"))?;
+    let db = Database::new(&database_url).await?;
+
+    // Check if user already exists
+    if db.get_user(username).await.is_ok() {
+        return Err(anyhow::anyhow!(
+            "A user with username '{}' already exists.",
+            username
+        ));
+    }
+
+    // Save to DB
+    db.add_user(&user)
+        .await
+        .map_err(|e| anyhow::anyhow!("Database error: {e}"))?;
+
+    println!("Superuser '{}' created successfully.", username);
+    Ok(())
 }
 
 /// Helper to fetch CLIENT_URL from environment.
