@@ -124,6 +124,7 @@ async fn main() -> std::io::Result<()> {
                     .service(handlers::retry_failed_schedule)
                     .service(handlers::get_buyer_by_wallet)
                     .service(handlers::get_buyers)
+                    .service(handlers::upload_buyers_csv)
                     .service(handlers::get_all_groups)
                     .service(handlers::get_group_by_id)
                     .use_state_guard(

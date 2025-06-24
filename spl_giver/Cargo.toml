@@ -10,7 +10,7 @@ common = { path = "../common" }
 actix-web = "4.10.2"
 actix-jwt-auth-middleware = "0.5.0"
 actix-state-guards = "0.1.0"
-
+actix-multipart = "0.7.2"
 
 tokio = { version = "1.45.0", features = ["full"] }
 tokio-stream = "0.1.17"
