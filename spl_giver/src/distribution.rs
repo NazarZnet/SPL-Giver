@@ -1,4 +1,4 @@
-use crate::state::AppState;
+use crate::state::{AppState, PendingOp};
 use actix_web::web;
 
 use chrono::Utc;
@@ -214,55 +214,71 @@ pub async fn try_transfer_with_retries(
     }
     Err(last_err.unwrap_or_else(|| "Unknown transfer error".to_string()))
 }
-
 pub async fn process_schedule(
-    data: &AppState,
+    app_state: &AppState,
     schedule: &Schedule,
     token_decimals: u8,
 ) -> anyhow::Result<Schedule> {
-    // Try to get group and buyer info
-    let group = match data.db.get_group(schedule.group_id).await {
+    //Flush any pending DB operations from previous runs
+    let retry_queue = &app_state.retry_queue;
+    if let Err(e) = retry_queue.flush(&app_state.db).await {
+        log::error!("Found pending DB operations. Failed save them to DB: {e}");
+    }
+
+    //Load Group
+    let group = match app_state.db.get_group(schedule.group_id).await {
         Ok(Some(g)) => g,
         Ok(None) => {
-            let error_message = format!("Group not found for schedule id={}", schedule.id);
-            log::error!("{}", error_message);
-            return data
+            let err_msg = format!("Group not found for schedule id={}", schedule.id);
+            log::error!("{}", err_msg);
+            return app_state
                 .db
-                .update_schedule_status(schedule.id, "failed", Some(error_message))
+                .update_schedule_status(schedule.id, "failed", Some(err_msg))
                 .await;
         }
         Err(e) => {
-            let error_message =
-                format!("Failed to get group for schedule id={}: {}", schedule.id, e);
-            log::error!("{}", error_message);
-            return data
+            let err_msg = format!(
+                "Database error retrieving group for schedule id={}: {}",
+                schedule.id, e
+            );
+            log::error!("{}", err_msg);
+            return app_state
                 .db
-                .update_schedule_status(schedule.id, "failed", Some(error_message))
-                .await;
-        }
-    };
-    let buyer = match data.db.get_buyer_by_wallet(&schedule.buyer_wallet).await {
-        Ok(Some(b)) => b,
-        Ok(None) => {
-            let error_message = format!("Buyer not found for schedule id={}", schedule.id);
-            log::error!("{}", error_message);
-            return data
-                .db
-                .update_schedule_status(schedule.id, "failed", Some(error_message))
-                .await;
-        }
-        Err(e) => {
-            let error_message =
-                format!("Failed to get buyer for schedule id={}: {}", schedule.id, e);
-            log::error!("{}", error_message);
-            return data
-                .db
-                .update_schedule_status(schedule.id, "failed", Some(error_message))
+                .update_schedule_status(schedule.id, "failed", Some(err_msg))
                 .await;
         }
     };
 
-    let mut transaction = Transaction::new(
+    //Load Buyer
+    let buyer = match app_state
+        .db
+        .get_buyer_by_wallet(&schedule.buyer_wallet)
+        .await
+    {
+        Ok(Some(b)) => b,
+        Ok(None) => {
+            let err_msg = format!("Buyer not found for schedule id={}", schedule.id);
+            log::error!("{}", err_msg);
+            return app_state
+                .db
+                .update_schedule_status(schedule.id, "failed", Some(err_msg))
+                .await;
+        }
+        Err(e) => {
+            let err_msg = format!(
+                "Database error retrieving buyer for schedule id={}: {}",
+                schedule.id, e
+            );
+            log::error!("{}", err_msg);
+            return app_state
+                .db
+                .update_schedule_status(schedule.id, "failed", Some(err_msg))
+                .await;
+        }
+    };
+
+    //Prepare transaction record
+    let mut tx_record = Transaction::new(
         schedule.buyer_wallet.clone(),
         schedule.group_id,
         schedule.amount_lamports,
@@ -270,75 +286,144 @@ pub async fn process_schedule(
         "success".to_string(),
     );
 
-    // Try to transfer tokens
-    match transfer_tokens_for_schedule(data, schedule, &buyer, token_decimals).await {
+    //Attempt token transfer
+    match transfer_tokens_for_schedule(app_state, schedule, &buyer, token_decimals).await {
         Ok(_) => {
-            // Save successful transaction
-            transaction.sent_at = Some(Utc::now().naive_utc());
-            if let Err(e) = data.db.save_transaction(transaction).await {
-                let error_message = format!(
-                    "Failed to save transaction for schedule id={:?}: {}",
-                    schedule.id, e
-                );
-                log::error!("{}", error_message);
-            }
+            log::info!("Tokens transferred for schedule id={}", schedule.id);
 
-            // Update buyer's received_spl, received_percent, pending_spl
-            let buyer_spl_lamports = buyer.paid_lamports / group.spl_price_lamports;
-            let received_spl_lamports = buyer.received_spl_lamports + schedule.amount_lamports;
-            let pending_spl = buyer_spl_lamports - received_spl_lamports;
-            let received_percent = schedule.percent;
-
-            if let Err(e) = data
-                .db
-                .update_buyer(
-                    &buyer.wallet.to_string(),
-                    received_spl_lamports,
-                    received_percent,
-                    pending_spl,
-                )
-                .await
-            {
-                //TODO: Improve error handling to try again update buyer. If no save errors for admin in another storage
-                let error_message = format!(
-                    "Failed to update buyer after transfer for schedule id={:?}: {}",
-                    schedule.id, e
-                );
-                log::error!("{}", error_message);
-                return data
-                    .db
-                    .update_schedule_status(schedule.id, "failed", Some(error_message))
-                    .await;
-            }
-
-            // Mark schedule as success
-            data.db
-                .update_schedule_status(schedule.id, "success", None)
-                .await
-        }
-        Err(e) => {
-            let error_message = format!(
-                "Failed to transfer tokens for schedule id={:?} buyer={} group={} amount_lamports={}: {}",
-                schedule.id, schedule.buyer_wallet, schedule.group_id, schedule.amount_lamports, e
-            );
-            log::error!("{}", error_message);
-
-            // Update transaction for failure
-            transaction.status = "failed".to_string();
-            transaction.error_message = Some(error_message.clone());
-            transaction.sent_at = Some(chrono::Utc::now().naive_utc());
-
-            // Save failed transaction
-            if let Err(e) = data.db.save_transaction(transaction).await {
+            //Save transaction
+            tx_record.sent_at = Some(Utc::now().naive_utc());
+            if let Err(e) = app_state.db.save_transaction(tx_record.clone()).await {
                 log::error!(
-                    "Failed to save failed transaction for schedule id={:?}: {}",
+                    "Failed to save transaction for schedule id={}: {}",
                     schedule.id,
                     e
                 );
+                if let Err(e) = retry_queue
+                    .push_and_persist(PendingOp::SaveTransaction(tx_record.clone()))
+                    .await
+                {
+                    log::error!("Failed to enqueue SaveTransaction: {}", e);
+                }
             }
-            data.db
-                .update_schedule_status(schedule.id, "failed", Some(error_message))
+
+            //Update buyer balances
+            let total_spl = buyer.paid_lamports / group.spl_price_lamports;
+            let new_received_spl = buyer.received_spl_lamports + schedule.amount_lamports;
+            let new_pending_spl = total_spl - new_received_spl;
+            let percent = schedule.percent;
+
+            if let Err(e) = app_state
+                .db
+                .update_buyer(
+                    &buyer.wallet.to_string(),
+                    new_received_spl,
+                    percent,
+                    new_pending_spl,
+                )
                 .await
+            {
+                log::error!(
+                    "Failed to update buyer after transfer for schedule id={}: {}",
+                    schedule.id,
+                    e
+                );
+                if let Err(e) = retry_queue
+                    .push_and_persist(PendingOp::UpdateBuyer {
+                        wallet: buyer.wallet.to_string(),
+                        received_spl: new_received_spl,
+                        received_percent: percent,
+                        pending_spl: new_pending_spl,
+                    })
+                    .await
+                {
+                    log::error!("Failed to enqueue UpdateBuyer: {}", e);
+                }
+            }
+
+            //Mark schedule as success
+            match app_state
+                .db
+                .update_schedule_status(schedule.id, "success", None)
+                .await
+            {
+                Ok(updated) => {
+                    log::info!("Schedule id={} marked success", schedule.id);
+                    Ok(updated)
+                }
+                Err(e) => {
+                    if let Err(e) = retry_queue
+                        .push_and_persist(PendingOp::UpdateSchedule {
+                            schedule_id: schedule.id,
+                            status: "success".into(),
+                            error_message: None,
+                        })
+                        .await
+                    {
+                        log::error!("Failed to enqueue UpdateSchedule: {}", e);
+                    }
+                    anyhow::bail!(
+                        "Failed to update schedule status to success for id={}: {}",
+                        schedule.id,
+                        e
+                    )
+                }
+            }
+        }
+        Err(e) => {
+            let err_msg = format!(
+                "Token transfer failed for schedule id={} buyer={} group={} amount={}: {}",
+                schedule.id, schedule.buyer_wallet, schedule.group_id, schedule.amount_lamports, e
+            );
+            log::error!("{}", err_msg);
+
+            //Record failed transaction
+            tx_record.status = "failed".to_string();
+            tx_record.error_message = Some(err_msg.clone());
+            tx_record.sent_at = Some(Utc::now().naive_utc());
+
+            if let Err(e) = app_state.db.save_transaction(tx_record.clone()).await {
+                log::error!(
+                    "Failed to save failed transaction for schedule id={}: {}",
+                    schedule.id,
+                    e
+                );
+                if let Err(e) = retry_queue
+                    .push_and_persist(PendingOp::SaveTransaction(tx_record))
+                    .await
+                {
+                    log::error!("Failed to enqueue SaveTransaction: {}", e);
+                }
+            }
+
+            //Mark schedule as failed
+            match app_state
+                .db
+                .update_schedule_status(schedule.id, "failed", Some(err_msg.clone()))
+                .await
+            {
+                Ok(updated) => {
+                    log::info!("Schedule id={} marked failed", schedule.id);
+                    Ok(updated)
+                }
+                Err(e) => {
+                    if let Err(e) = retry_queue
+                        .push_and_persist(PendingOp::UpdateSchedule {
+                            schedule_id: schedule.id,
+                            status: "failed".into(),
+                            error_message: Some(err_msg),
+                        })
+                        .await
+                    {
+                        log::error!("Failed to enqueue UpdateSchedule: {}", e);
+                    }
+                    anyhow::bail!(
+                        "Failed to update schedule status to failed for id={}: {}",
+                        schedule.id,
+                        e
+                    )
+                }
+            }
         }
     }
 }
