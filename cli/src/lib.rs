@@ -115,7 +115,7 @@ async fn create_superuser(username: &str, email: &str, password: &str) -> anyhow
     }
 
     // Save to DB
-    db.add_user(&user)
+    db.save_user(&user)
         .await
         .map_err(|e| anyhow::anyhow!("Database error: {e}"))?;
 

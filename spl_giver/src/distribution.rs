@@ -110,7 +110,7 @@ pub async fn initialize_schedules(data: web::Data<AppState>) -> anyhow::Result<(
                 );
 
                 // Save schedule entry to DB
-                if let Err(e) = data.db.add_schedule(&schedule).await {
+                if let Err(e) = data.db.save_schedule(&schedule).await {
                     log::error!("Failed to save schedule for {}: {}", buyer.wallet, e);
                 }
             }
@@ -234,12 +234,18 @@ pub async fn process_schedule(
 ) -> anyhow::Result<Schedule> {
     // Try to get group and buyer info
     let group = match data.db.get_group(schedule.group_id).await {
-        Ok(g) => g,
+        Ok(Some(g)) => g,
+        Ok(None) => {
+            let error_message = format!("Group not found for schedule id={}", schedule.id);
+            log::error!("{}", error_message);
+            return data
+                .db
+                .update_schedule_status(schedule.id, "failed", Some(error_message))
+                .await;
+        }
         Err(e) => {
-            let error_message = format!(
-                "Failed to get group for schedule id={:?}: {}",
-                schedule.id, e
-            );
+            let error_message =
+                format!("Failed to get group for schedule id={}: {}", schedule.id, e);
             log::error!("{}", error_message);
             return data
                 .db
@@ -248,12 +254,18 @@ pub async fn process_schedule(
         }
     };
     let buyer = match data.db.get_buyer_by_wallet(&schedule.buyer_wallet).await {
-        Ok(b) => b,
+        Ok(Some(b)) => b,
+        Ok(None) => {
+            let error_message = format!("Buyer not found for schedule id={}", schedule.id);
+            log::error!("{}", error_message);
+            return data
+                .db
+                .update_schedule_status(schedule.id, "failed", Some(error_message))
+                .await;
+        }
         Err(e) => {
-            let error_message = format!(
-                "Failed to get buyer for schedule id={:?}: {}",
-                schedule.id, e
-            );
+            let error_message =
+                format!("Failed to get buyer for schedule id={}: {}", schedule.id, e);
             log::error!("{}", error_message);
             return data
                 .db

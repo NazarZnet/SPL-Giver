@@ -19,8 +19,8 @@ impl Database {
         let pool = MySqlPool::connect_with(options).await?;
         Ok(Self { pool })
     }
-    pub async fn save_group(&self, group: &Group) -> anyhow::Result<()> {
-        sqlx::query!(
+    pub async fn save_group(&self, group: &Group) -> anyhow::Result<bool> {
+        let result = sqlx::query!(
             r#"
                 INSERT IGNORE INTO `groups` (
                     id, spl_share_percent, spl_total_lamports, spl_price_lamports,
@@ -38,9 +38,10 @@ impl Database {
         )
         .execute(&self.pool)
         .await
-        .context("Failed to save group to database")?;
+        .context(format!("Failed to save group {} to database", group.id))?;
 
-        Ok(())
+        // true = rows inserted; false = ignored
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn get_all_groups(&self) -> anyhow::Result<Vec<Group>> {
@@ -55,8 +56,8 @@ impl Database {
         .context("Failed to get all groups from database")?;
         Ok(groups)
     }
-    //TODO: Rewrite to return Option if success
-    pub async fn get_group(&self, group_id: i64) -> anyhow::Result<Group> {
+
+    pub async fn get_group(&self, group_id: i64) -> anyhow::Result<Option<Group>> {
         let row = sqlx::query_as!(
             Group,
             r#"
@@ -64,15 +65,15 @@ impl Database {
             "#,
             group_id
         )
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await
         .context(format!("Failed to get group with id {}", group_id))?;
         Ok(row)
     }
 
-    pub async fn save_buyer(&self, buyer: &Buyer) -> anyhow::Result<()> {
+    pub async fn save_buyer(&self, buyer: &Buyer) -> anyhow::Result<bool> {
         let wallet_str = buyer.wallet.to_string();
-        sqlx::query!(
+        let result=sqlx::query!(
             r#"
             INSERT IGNORE INTO `buyers` (
                 wallet, paid_lamports, group_id, received_spl_lamports, received_percent, pending_spl_lamports, error
@@ -90,7 +91,8 @@ impl Database {
         .await
         .context("Failed to save buyer to database")?;
 
-        Ok(())
+        // true = rows inserted; false = ignored
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn get_buyers_by_group(&self, group_id: i64) -> anyhow::Result<Vec<Buyer>> {
@@ -107,12 +109,17 @@ impl Database {
             group_id
         ))?;
 
-        let buyers = rows
-            .into_iter()
-            .map(|row| Buyer {
-                wallet: Pubkey::from_str(&row.wallet)
-                    .map_err(|_| sqlx::Error::Decode("Invalid Pubkey".into()))
-                    .unwrap(), // handle error as needed
+        let mut buyers = Vec::with_capacity(rows.len());
+        for row in rows {
+            let wallet = row.wallet.parse::<Pubkey>().with_context(|| {
+                format!(
+                    "Failed get buyers by group. Invalid Pubkey `{}` for group_id={}",
+                    row.wallet, group_id
+                )
+            })?;
+
+            buyers.push(Buyer {
+                wallet,
                 paid_lamports: row.paid_lamports,
                 group_id: row.group_id,
                 received_spl_lamports: row.received_spl_lamports,
@@ -121,8 +128,8 @@ impl Database {
                 error: row.error,
                 created_at: row.created_at,
                 updated_at: row.updated_at,
-            })
-            .collect();
+            });
+        }
         Ok(buyers)
     }
     pub async fn update_buyer(
@@ -131,8 +138,8 @@ impl Database {
         received_spl_lamports: u64,
         received_percent: f64,
         pending_spl_lamports: u64,
-    ) -> anyhow::Result<()> {
-        sqlx::query!(
+    ) -> anyhow::Result<Buyer> {
+        let result = sqlx::query!(
             r#"
             UPDATE `buyers`
             SET received_spl_lamports = ?, received_percent = ?, pending_spl_lamports = ?
@@ -147,23 +154,44 @@ impl Database {
         .await
         .context("Failed to update buyer in database")?;
 
-        Ok(())
+        if result.rows_affected() == 0 {
+            anyhow::bail!(
+                "Failed to update buyer. No buyer found with wallet `{}`",
+                wallet
+            );
+        }
+        let updated_opt = self.get_buyer_by_wallet(wallet).await?;
+
+        updated_opt.ok_or_else(|| anyhow::anyhow!("Buyer `{}` not found after update", wallet))
     }
 
-    pub async fn get_buyer_by_wallet(&self, wallet: &str) -> anyhow::Result<Buyer> {
+    pub async fn get_buyer_by_wallet(&self, wallet: &str) -> anyhow::Result<Option<Buyer>> {
         let row = sqlx::query!(
             r#"
-            SELECT * FROM `buyers` WHERE wallet = ?
+                SELECT * FROM `buyers`
+                WHERE wallet = ?
             "#,
             wallet
         )
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await
-        .context(format!("Failed to get buyer with wallet {}", wallet))?;
+        .context(format!("Failed to get buyer with wallet `{}`", wallet))?;
+
+        let row = match row {
+            Some(r) => r,
+            None => {
+                return Ok(None);
+            }
+        };
+        let wallet_pk = Pubkey::from_str(&row.wallet).with_context(|| {
+            format!(
+                "Failed to get buyer. Invalid Pubkey `{}` for wallet lookup",
+                row.wallet
+            )
+        })?;
 
         let buyer = Buyer {
-            wallet: Pubkey::from_str(&row.wallet)
-                .map_err(|_| sqlx::Error::Decode("Invalid Pubkey".into()))?,
+            wallet: wallet_pk,
             paid_lamports: row.paid_lamports,
             group_id: row.group_id,
             received_spl_lamports: row.received_spl_lamports,
@@ -173,7 +201,8 @@ impl Database {
             created_at: row.created_at,
             updated_at: row.updated_at,
         };
-        Ok(buyer)
+
+        Ok(Some(buyer))
     }
 
     pub async fn get_all_buyers(&self) -> anyhow::Result<Vec<Buyer>> {
@@ -186,12 +215,14 @@ impl Database {
         .await
         .context("Failed to get all buyers")?;
 
-        let buyers = rows
-            .into_iter()
-            .map(|row| Buyer {
-                wallet: Pubkey::from_str(&row.wallet)
-                    .map_err(|_| sqlx::Error::Decode("Invalid Pubkey".into()))
-                    .unwrap(), // handle error as needed
+        let mut buyers = Vec::with_capacity(rows.len());
+        for row in rows {
+            let wallet_pk = Pubkey::from_str(&row.wallet).with_context(|| {
+                format!("Failed to get all buyers. Invalid Pubkey `{}`", row.wallet)
+            })?;
+
+            buyers.push(Buyer {
+                wallet: wallet_pk,
                 paid_lamports: row.paid_lamports,
                 group_id: row.group_id,
                 received_spl_lamports: row.received_spl_lamports,
@@ -200,13 +231,13 @@ impl Database {
                 error: row.error,
                 created_at: row.created_at,
                 updated_at: row.updated_at,
-            })
-            .collect();
+            });
+        }
         Ok(buyers)
     }
 
-    pub async fn save_transaction(&self, transaction: Transaction) -> anyhow::Result<()> {
-        sqlx::query!(
+    pub async fn save_transaction(&self, transaction: Transaction) -> anyhow::Result<i64> {
+        let result = sqlx::query!(
             r#"
             INSERT INTO `transactions` (
                 buyer_wallet, group_id, amount_lamports, percent, status, error_message, sent_at
@@ -224,7 +255,7 @@ impl Database {
         .await
         .context("Failed to save transaction")?;
 
-        Ok(())
+        Ok(result.last_insert_id() as i64)
     }
 
     pub async fn get_transactions_by_status(
@@ -264,8 +295,8 @@ impl Database {
         Ok(transactions)
     }
 
-    pub async fn add_schedule(&self, schedule: &Schedule) -> anyhow::Result<()> {
-        sqlx::query!(
+    pub async fn save_schedule(&self, schedule: &Schedule) -> anyhow::Result<i64> {
+        let result = sqlx::query!(
             r#"
             INSERT INTO `schedule` (
                 group_id, buyer_wallet, scheduled_at, amount_lamports, percent, status
@@ -280,9 +311,11 @@ impl Database {
         )
         .execute(&self.pool)
         .await
-        .context("Failed to add schedule")?;
-
-        Ok(())
+        .context(format!(
+            "Failed to insert schedule for group_id={} buyer={}",
+            schedule.group_id, schedule.buyer_wallet
+        ))?;
+        Ok(result.last_insert_id() as i64)
     }
     pub async fn get_schedule_by_id(&self, schedule_id: i64) -> anyhow::Result<Option<Schedule>> {
         let row = sqlx::query_as!(
@@ -294,7 +327,7 @@ impl Database {
         )
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to fetch schedule by id")?;
+        .context(format!("Failed to get schedule with id={}", schedule_id))?;
 
         Ok(row)
     }
@@ -312,7 +345,7 @@ impl Database {
         )
         .fetch_all(&self.pool)
         .await
-        .context("Failed to get schedules by status")?;
+        .context(format!("Failed to get schedules with status `{}`", status))?;
 
         Ok(rows)
     }
@@ -366,7 +399,10 @@ impl Database {
         )
         .fetch_all(&self.pool)
         .await
-        .context("Failed to get schedules by buyer and group")?;
+        .context(format!(
+            "Failed to get schedules for buyer `{}` and group `{}`",
+            buyer_wallet, group_id
+        ))?;
 
         Ok(rows)
     }
@@ -404,7 +440,7 @@ impl Database {
             .ok_or_else(|| anyhow::anyhow!("Updated schedule not found (id: {})", schedule_id))
     }
     pub async fn delete_schedule(&self, schedule_id: i64) -> anyhow::Result<()> {
-        sqlx::query!(
+        let result = sqlx::query!(
             r#"
             DELETE FROM `schedule` WHERE id = ?
             "#,
@@ -414,10 +450,17 @@ impl Database {
         .await
         .context(format!("Failed to delete schedule with id {}", schedule_id))?;
 
+        if result.rows_affected() == 0 {
+            anyhow::bail!(
+                "Failed to delete schedule. No schedule found with id {}",
+                schedule_id
+            );
+        }
+
         Ok(())
     }
-    pub async fn add_user(&self, user: &User) -> anyhow::Result<()> {
-        sqlx::query!(
+    pub async fn save_user(&self, user: &User) -> anyhow::Result<i64> {
+        let result = sqlx::query!(
             r#"
             INSERT INTO users (username, email, password_hash, is_superuser)
             VALUES (?, ?, ?, ?)
@@ -429,11 +472,20 @@ impl Database {
         )
         .execute(&self.pool)
         .await
-        .context("Failed to add user to database")?;
-        Ok(())
+        .context(format!(
+            "Failed to insert user `{}` into database",
+            user.username
+        ))?;
+        if result.rows_affected() == 0 {
+            anyhow::bail!(
+                "Failed to insert user. No rows inserted for user `{}`",
+                user.username
+            );
+        }
+        Ok(result.last_insert_id() as i64)
     }
 
-    pub async fn get_user(&self, username: &str) -> anyhow::Result<User> {
+    pub async fn get_user(&self, username: &str) -> anyhow::Result<Option<User>> {
         let user = sqlx::query_as!(
             User,
             r#"
@@ -450,7 +502,7 @@ impl Database {
             "#,
             username
         )
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await
         .context(format!("Failed to get user with username '{}'", username))?;
         Ok(user)

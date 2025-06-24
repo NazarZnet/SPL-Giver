@@ -15,7 +15,6 @@ pub async fn get_all_groups(app_state: web::Data<AppState>) -> Result<HttpRespon
 
     Ok(HttpResponse::Ok().json(groups))
 }
-
 #[get("/groups/{group_id}")]
 pub async fn get_group_by_id(
     path: web::Path<i64>,
@@ -23,13 +22,25 @@ pub async fn get_group_by_id(
 ) -> Result<HttpResponse, Error> {
     let group_id = path.into_inner();
 
-    let group = app_state.db.get_group(group_id).await.map_err(|e| {
-        log::error!("Failed to fetch group {}: {}", group_id, e);
+    let maybe_group = app_state.db.get_group(group_id).await.map_err(|e| {
+        log::error!("Database error fetching group {}: {}", group_id, e);
         InternalError::new(
-            "Group with provided group ID not found.",
-            StatusCode::NOT_FOUND,
+            "Internal server error while fetching group.",
+            StatusCode::INTERNAL_SERVER_ERROR,
         )
     })?;
+
+    let group = match maybe_group {
+        Some(g) => g,
+        None => {
+            log::warn!("Group not found: {}", group_id);
+            return Err(InternalError::new(
+                "Group with provided ID not found.",
+                StatusCode::NOT_FOUND,
+            )
+            .into());
+        }
+    };
 
     Ok(HttpResponse::Ok().json(group))
 }

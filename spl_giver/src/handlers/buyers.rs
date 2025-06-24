@@ -34,17 +34,29 @@ pub async fn get_buyer_by_wallet(
 ) -> Result<HttpResponse, Error> {
     let wallet = path.into_inner();
 
-    let buyer = app_state
+    let maybe_buyer = app_state
         .db
         .get_buyer_by_wallet(&wallet)
         .await
         .map_err(|e| {
-            log::error!("Failed to get buyer by wallet {}: {}", wallet, e);
+            log::error!("DB error fetching buyer `{}`: {}", wallet, e);
             InternalError::new(
+                "Internal server error while fetching buyer.",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+
+    let buyer = match maybe_buyer {
+        Some(b) => b,
+        None => {
+            log::warn!("Buyer not found: {}", wallet);
+            return Err(InternalError::new(
                 "Buyer with provided wallet not found.",
                 StatusCode::NOT_FOUND,
             )
-        })?;
+            .into());
+        }
+    };
 
     Ok(HttpResponse::Ok().json(buyer))
 }

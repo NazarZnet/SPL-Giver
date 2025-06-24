@@ -17,17 +17,34 @@ pub async fn login(
     app_state: web::Data<AppState>,
     cookie_signer: web::Data<TokenSigner<User, Ed25519>>,
 ) -> Result<HttpResponse, Error> {
-    let user = app_state
+    let user = match app_state
         .db
         .get_user(&login_data.username)
         .await
-        .map_err(|_| {
-            log::warn!("Failed to get User with username: {}", login_data.username);
+        .map_err(|e| {
+            log::error!(
+                "Database error while looking up user `{}`: {}",
+                login_data.username,
+                e
+            );
             InternalError::new(
+                "Internal error looking up user",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })? {
+        Some(u) => u,
+        None => {
+            log::warn!(
+                "Login attempt for non-existent user `{}`",
+                login_data.username
+            );
+            return Err(InternalError::new(
                 "User with provided username not found!",
                 StatusCode::UNAUTHORIZED,
             )
-        })?;
+            .into());
+        }
+    };
 
     if let Err(err) = user.verify_password(&login_data.password) {
         log::warn!(
