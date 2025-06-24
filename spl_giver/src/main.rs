@@ -20,7 +20,7 @@ use state::AppState;
 // DONE: Check that group has enought tokens
 //DONE: create routes to get transaction history and all information about buyers and so on
 //DONE: create authorization for all routes
-//TODO: Create route to try again transafer failed transactions
+//DONE: Create route to try again transafer failed transactions
 //TODO: create documentation and api doc
 //DONE: rewrite distribute not shedule task. Create loop that will check if there are any sheduled tasks exists and run them
 
@@ -134,6 +134,7 @@ async fn main() -> std::io::Result<()> {
                     .service(handlers::index)
                     .service(handlers::get_transactions)
                     .service(handlers::get_schedule)
+                    .service(handlers::retry_failed_schedule)
                     .service(handlers::get_buyer_by_wallet)
                     .service(handlers::get_buyers)
                     .service(handlers::get_all_groups)

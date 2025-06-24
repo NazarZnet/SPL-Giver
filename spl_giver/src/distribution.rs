@@ -1,9 +1,9 @@
 use crate::state::AppState;
 use actix_web::web;
+
 use chrono::Utc;
 use common::SplToken;
 use common::{Buyer, Schedule, Transaction};
-
 use solana_sdk::pubkey::Pubkey;
 use tokio::time::{Duration, sleep};
 
@@ -136,7 +136,8 @@ pub async fn start_schedule_runner(data: web::Data<AppState>) {
                             schedule.amount_lamports,
                             schedule.scheduled_at
                         );
-                        process_schedule(&data, &schedule, 9).await;
+                        //TODO: get decimals from config
+                        let _ = process_schedule(&data, &schedule, 9).await;
                     }
                 }
                 Err(e) => {
@@ -226,7 +227,11 @@ pub async fn try_transfer_with_retries(
     Err(last_err.unwrap_or_else(|| "Unknown transfer error".to_string()))
 }
 
-async fn process_schedule(data: &AppState, schedule: &Schedule, token_decimals: u8) {
+pub async fn process_schedule(
+    data: &AppState,
+    schedule: &Schedule,
+    token_decimals: u8,
+) -> anyhow::Result<Schedule> {
     // Try to get group and buyer info
     let group = match data.db.get_group(schedule.group_id).await {
         Ok(g) => g,
@@ -236,11 +241,10 @@ async fn process_schedule(data: &AppState, schedule: &Schedule, token_decimals: 
                 schedule.id, e
             );
             log::error!("{}", error_message);
-            let _ = data
+            return data
                 .db
                 .update_schedule_status(schedule.id, "failed", Some(error_message))
                 .await;
-            return;
         }
     };
     let buyer = match data.db.get_buyer_by_wallet(&schedule.buyer_wallet).await {
@@ -251,11 +255,10 @@ async fn process_schedule(data: &AppState, schedule: &Schedule, token_decimals: 
                 schedule.id, e
             );
             log::error!("{}", error_message);
-            let _ = data
+            return data
                 .db
                 .update_schedule_status(schedule.id, "failed", Some(error_message))
                 .await;
-            return;
         }
     };
 
@@ -302,18 +305,16 @@ async fn process_schedule(data: &AppState, schedule: &Schedule, token_decimals: 
                     schedule.id, e
                 );
                 log::error!("{}", error_message);
-                let _ = data
+                return data
                     .db
                     .update_schedule_status(schedule.id, "failed", Some(error_message))
                     .await;
-                // continue;
             }
 
             // Mark schedule as success
-            let _ = data
-                .db
+            data.db
                 .update_schedule_status(schedule.id, "success", None)
-                .await;
+                .await
         }
         Err(e) => {
             let error_message = format!(
@@ -335,10 +336,9 @@ async fn process_schedule(data: &AppState, schedule: &Schedule, token_decimals: 
                     e
                 );
             }
-            let _ = data
-                .db
+            data.db
                 .update_schedule_status(schedule.id, "failed", Some(error_message))
-                .await;
+                .await
         }
     }
 }

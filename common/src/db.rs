@@ -284,6 +284,20 @@ impl Database {
 
         Ok(())
     }
+    pub async fn get_schedule_by_id(&self, schedule_id: i64) -> anyhow::Result<Option<Schedule>> {
+        let row = sqlx::query_as!(
+            Schedule,
+            r#"
+            SELECT * FROM `schedule` WHERE id = ?
+        "#,
+            schedule_id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to fetch schedule by id")?;
+
+        Ok(row)
+    }
 
     pub async fn get_schedules_by_status(&self, status: &str) -> anyhow::Result<Vec<Schedule>> {
         let rows = sqlx::query_as!(
@@ -361,14 +375,14 @@ impl Database {
         schedule_id: i64,
         status: &str,
         error_message: Option<String>,
-    ) -> anyhow::Result<()> {
-        sqlx::query!(
+    ) -> anyhow::Result<Schedule> {
+        let result = sqlx::query!(
             r#"
-            UPDATE `schedule`
-            SET status = ?, 
-                updated_at = CURRENT_TIMESTAMP,
-                error_message = ?
-            WHERE id = ?
+                UPDATE `schedule`
+                SET status = ?, 
+                    updated_at = CURRENT_TIMESTAMP,
+                    error_message = ?
+                WHERE id = ?
             "#,
             status,
             error_message,
@@ -381,7 +395,13 @@ impl Database {
             schedule_id
         ))?;
 
-        Ok(())
+        if result.rows_affected() == 0 {
+            anyhow::bail!("No schedule found with id {} to update", schedule_id);
+        }
+
+        self.get_schedule_by_id(schedule_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Updated schedule not found (id: {})", schedule_id))
     }
     pub async fn delete_schedule(&self, schedule_id: i64) -> anyhow::Result<()> {
         sqlx::query!(

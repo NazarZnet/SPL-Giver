@@ -6554,6 +6554,7 @@ dependencies = [
  "log",
  "pretty_env_logger",
  "serde",
+ "serde_json",
  "solana-sdk",
  "tokio",
  "tokio-stream",
