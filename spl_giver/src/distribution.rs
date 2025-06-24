@@ -29,12 +29,12 @@ pub async fn check_group_token_funding(data: &AppState) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn initialize_schedules(data: web::Data<AppState>) -> anyhow::Result<()> {
-    let groups = data.db.get_all_groups().await?;
+pub async fn initialize_schedules(app_state: &AppState) -> anyhow::Result<()> {
+    let groups = app_state.db.get_all_groups().await?;
 
     for group in groups.into_iter() {
         log::info!("Distributing tokens for group: {}", group.id);
-        let buyers = data.db.get_buyers_by_group(group.id).await?;
+        let buyers = app_state.db.get_buyers_by_group(group.id).await?;
         for buyer in &buyers {
             let buyer_spl = buyer.paid_lamports / group.spl_price_lamports;
             let already_received_lamports = buyer.received_spl_lamports;
@@ -55,7 +55,7 @@ pub async fn initialize_schedules(data: web::Data<AppState>) -> anyhow::Result<(
             }
 
             // Get existing schedule percents for this buyer
-            let existing_schedules = data
+            let existing_schedules = app_state
                 .db
                 .get_schedules_by_buyer_and_group(&buyer.wallet.to_string(), group.id)
                 .await?;
@@ -110,7 +110,7 @@ pub async fn initialize_schedules(data: web::Data<AppState>) -> anyhow::Result<(
                 );
 
                 // Save schedule entry to DB
-                if let Err(e) = data.db.save_schedule(&schedule).await {
+                if let Err(e) = app_state.db.save_schedule(&schedule).await {
                     log::error!("Failed to save schedule for {}: {}", buyer.wallet, e);
                 }
             }
@@ -121,37 +121,25 @@ pub async fn initialize_schedules(data: web::Data<AppState>) -> anyhow::Result<(
     Ok(())
 }
 
-pub async fn start_schedule_runner(data: web::Data<AppState>) {
-    let handle = tokio::spawn(async move {
-        loop {
-            let now = Utc::now().naive_utc();
-            match data.db.get_schedules_due(now).await {
-                Ok(schedules) => {
-                    for schedule in schedules {
-                        log::info!(
-                            "Schedule ready: id={:?} buyer={} group={} amount_lamports={} scheduled_at={}",
-                            schedule.id,
-                            schedule.buyer_wallet,
-                            schedule.group_id,
-                            schedule.amount_lamports,
-                            schedule.scheduled_at
-                        );
-                        //TODO: get decimals from config
-                        let _ = process_schedule(&data, &schedule, 9).await;
-                    }
-                }
-                Err(e) => {
-                    log::error!("Error fetching due schedules: {}", e);
-                    std::process::exit(1);
-                }
+pub async fn start_schedule_runner(app_state: web::Data<AppState>) -> anyhow::Result<()> {
+    loop {
+        let now = Utc::now().naive_utc();
+        let schedules = app_state.db.get_schedules_due(now).await?;
+        for schedule in schedules {
+            log::info!(
+                "Schedule ready: id={:?} buyer={} group={} amount_lamports={} scheduled_at={}",
+                schedule.id,
+                schedule.buyer_wallet,
+                schedule.group_id,
+                schedule.amount_lamports,
+                schedule.scheduled_at
+            );
+            //TODO: get decimals from config
+            if let Err(e) = process_schedule(&app_state, &schedule, 9).await {
+                log::error!("Failed to process schedule id={}: {:#}", schedule.id, e);
             }
-            sleep(Duration::from_secs(1)).await;
         }
-    });
-
-    if let Err(e) = handle.await {
-        log::error!("Schedule runner task stopped unexpectedly: {:?}", e);
-        std::process::exit(1);
+        sleep(Duration::from_secs(60)).await;
     }
 }
 pub async fn transfer_tokens_for_schedule(

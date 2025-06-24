@@ -4,8 +4,10 @@ mod state;
 
 use actix_jwt_auth_middleware::{Authority, TokenSigner, use_jwt::UseJWTOnApp};
 use actix_state_guards::UseStateGuardOnScope;
-use actix_web::{App, HttpServer, error::InternalError, http::StatusCode, middleware::Logger, web};
-use common::{Buyer, Group, User};
+use actix_web::{
+    App, HttpServer, error::InternalError, http::StatusCode, middleware::Logger, rt::System, web,
+};
+use common::User;
 use dotenv::dotenv;
 use ed25519_compact::KeyPair;
 use jwt_compact::alg::Ed25519;
@@ -36,73 +38,51 @@ async fn main() -> std::io::Result<()> {
     let mut logger_builder = Builder::from_env(logger_env);
     logger_builder.init();
 
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-        log::error!("DATABASE_URL is not set in environment variables");
-        std::process::exit(1);
-    });
-    let client_url = std::env::var("CLIENT_URL").unwrap_or_else(|_| {
-        log::error!("CLIENT_URL is not set in environment variables");
-        std::process::exit(1);
-    });
+    let state = AppState::from_env().await.map_err(|e| {
+        log::error!("Application initialization failed: {:#}", e);
+        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+    })?;
 
-    let wallet = std::env::var("MAIN_WALLET").unwrap_or_else(|_| {
-        log::error!("MAIN_WALLET is not set in environment variables");
-        std::process::exit(1);
-    });
-    let mint = std::env::var("MINT_PUBKEY").unwrap_or_else(|_| {
-        log::error!("MINT_PUBKEY is not set in environment variables");
-        std::process::exit(1);
-    });
+    log::info!("App state initialized successfully");
 
-    let state = AppState::new(&database_url, &client_url, &wallet, &mint)
+    state
+        .initialize_data_from_files("../groups.yaml", "../buyers_list.csv")
         .await
-        .unwrap_or_else(|e| {
-            log::error!("Failed to generate app state: {:#?}", e);
-            std::process::exit(1);
-        });
-    log::info!("App state generated successfully");
+        .map_err(|e| {
+            log::error!("Data initialization failed: {:#}", e);
+            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        })?;
 
-    //TODO: Move this logic to external function
-    let groups = Group::from_yaml_file("../groups.yaml", state.spl_token.balance)
-        .await
-        .unwrap_or_else(|e| {
-            log::error!("Failed to load groups from YAML file: {:#?}", e);
-            std::process::exit(1);
-        });
-    let buyers = Buyer::load_from_csv("../buyers_list.csv", &groups)
-        .await
-        .unwrap_or_else(|e| {
-            log::error!("Failed to load buyers from CSV file: {:#?}", e);
-            std::process::exit(1);
-        });
+    log::info!("Initial data loaded successfully");
 
-    for group in groups {
-        state.db.save_group(&group).await.unwrap_or_else(|e| {
-            log::error!("Failed to save group to database: {:#?}", e);
-            std::process::exit(1);
-        });
-    }
-
-    for buyer in buyers {
-        state.db.save_buyer(&buyer).await.unwrap_or_else(|e| {
-            log::error!("Failed to save buyer to database: {:#?}", e);
-            std::process::exit(1);
-        });
-    }
     // Check admin ATA balance
-    if let Err(e) = check_group_token_funding(&state).await {
-        log::error!("{}", e);
-        std::process::exit(1);
-    }
+    check_group_token_funding(&state).await.map_err(|e| {
+        log::error!("Admin ATA balance check failed: {:#}", e);
+        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+    })?;
+
+    log::info!("Admin ATA balance is OK");
+
+    // Initialize schedules
+    initialize_schedules(&state).await.map_err(|e| {
+        log::error!("Failed to initialize schedules: {:#}", e);
+        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+    })?;
+    log::info!("Schedules initialized successfully");
 
     let data = web::Data::new(state);
 
-    // Run distribution in background
-    if let Err(e) = initialize_schedules(data.clone()).await {
-        log::error!("Failed to make sheduled tasks: {:#?}", e);
-        std::process::exit(1);
+    // Spawn the schedule runner
+    {
+        let runner_state = data.clone();
+        tokio::spawn(async move {
+            if let Err(e) = distribution::start_schedule_runner(runner_state).await {
+                log::error!("Schedule runner encountered an error: {:#}", e);
+                // Gracefully stop the Actix system
+                System::current().stop();
+            }
+        });
     }
-    tokio::spawn(distribution::start_schedule_runner(data.clone()));
 
     //Authorization
     let KeyPair {
