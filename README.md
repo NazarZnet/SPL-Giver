@@ -146,6 +146,24 @@ Get specific buyer by wallet address.
 - **404 Not Found**: Buyer not found
 - **500 Internal Server Error**: Database error
 
+### POST /buyers/upload
+Upload CSV file with additional buyers
+
+**Response:**
+- **200 OK**: Imported buyers, skipped buyers (if buyer with the wallet already exists) and buyers schedules
+```json
+{
+  "imported": [...],           // Successfully created new buyers
+  "skipped": [...],            // Existing buyers
+  "schedules": {               // Schedules for new buyers. Key it's wallet,value it's array of schedules
+      "...":[...]
+   }   
+}
+```
+- **400 Bad Request**:Invalid file uploaded
+- **500 Internal Server Error**: Database error
+
+
 ---
 
 ## Groups Management
