@@ -11,7 +11,7 @@ use spl_associated_token_account::{
     get_associated_token_address_with_program_id, instruction::create_associated_token_account,
 };
 use spl_token_2022::{
-    extension::{ExtensionType, metadata_pointer},
+    extension::{ExtensionType, StateWithExtensions, metadata_pointer},
     id as token_2022_program_id,
     instruction::{initialize_mint, mint_to, transfer_checked},
     state::Mint,
@@ -24,6 +24,7 @@ pub struct SplToken {
     pub main_wallet: Keypair,
     pub client: RpcClient,
     pub balance: u64,
+    pub decimals: u8,
 }
 
 impl SplToken {
@@ -42,6 +43,9 @@ impl SplToken {
         .await?;
 
         let balance = Self::get_token_account_balance(&client, &token_account).await?;
+        let mint_data = client.get_account_data(&mint).await?;
+        let mint_info = StateWithExtensions::<Mint>::unpack(&mint_data)?;
+        let decimals = mint_info.base.decimals;
 
         Ok(Self {
             mint,
@@ -49,6 +53,7 @@ impl SplToken {
             main_wallet,
             client,
             balance,
+            decimals,
         })
     }
     pub async fn connect(client_url: &str) -> RpcClient {

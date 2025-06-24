@@ -134,8 +134,10 @@ pub async fn start_schedule_runner(app_state: web::Data<AppState>) -> anyhow::Re
                 schedule.amount_lamports,
                 schedule.scheduled_at
             );
-            //TODO: get decimals from config
-            if let Err(e) = process_schedule(&app_state, &schedule, 9).await {
+
+            if let Err(e) =
+                process_schedule(&app_state, &schedule, app_state.spl_token.decimals).await
+            {
                 log::error!("Failed to process schedule id={}: {:#}", schedule.id, e);
             }
         }

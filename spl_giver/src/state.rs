@@ -31,18 +31,6 @@ impl AppState {
             retry_queue,
         })
     }
-    pub async fn from_env<P: AsRef<Path>>(retry_queue_path: P) -> anyhow::Result<Self> {
-        let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL must be set")?;
-        let client_url = std::env::var("CLIENT_URL").context("CLIENT_URL must be set")?;
-        let wallet = std::env::var("MAIN_WALLET").context("MAIN_WALLET must be set")?;
-        let mint = std::env::var("MINT_PUBKEY").context("MINT_PUBKEY must be set")?;
-
-        let state = AppState::new(&database_url, &client_url, &wallet, &mint, retry_queue_path)
-            .await
-            .context("Failed to initialize AppState")?;
-
-        Ok(state)
-    }
 
     pub async fn initialize_data_from_files(
         &self,

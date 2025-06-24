@@ -1,3 +1,4 @@
+mod config;
 mod distribution;
 mod handlers;
 mod state;
@@ -14,7 +15,8 @@ use jwt_compact::alg::Ed25519;
 use pretty_env_logger::env_logger::{Builder, Env};
 
 use distribution::{check_group_token_funding, initialize_schedules};
-use state::AppState;
+
+use crate::config::AppConfig;
 
 //DONE: Check transaction send some times
 //DONE: Create database with transations history
@@ -38,17 +40,20 @@ async fn main() -> std::io::Result<()> {
     let mut logger_builder = Builder::from_env(logger_env);
     logger_builder.init();
 
-    let state = AppState::from_env("../pending_ops.json")
-        .await
-        .map_err(|e| {
-            log::error!("Application initialization failed: {:#}", e);
-            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-        })?;
+    let config = AppConfig::from_env().map_err(|e| {
+        log::error!("Application initialization failed: {:#}", e);
+        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+    })?;
+
+    let state = config.create_app_state().await.map_err(|e| {
+        log::error!("Application initialization failed: {:#}", e);
+        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+    })?;
 
     log::info!("App state initialized successfully");
 
     state
-        .initialize_data_from_files("../groups.yaml", "../buyers_list.csv")
+        .initialize_data_from_files(&config.groups_yaml, &config.buyers_csv)
         .await
         .map_err(|e| {
             log::error!("Data initialization failed: {:#}", e);

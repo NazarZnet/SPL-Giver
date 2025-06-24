@@ -75,7 +75,7 @@ pub async fn retry_failed_schedule(app_state: web::Data<AppState>) -> Result<Htt
     let mut failed = Vec::new();
 
     for schedule in schedules {
-        match process_schedule(&app_state, &schedule, 9).await {
+        match process_schedule(&app_state, &schedule, app_state.spl_token.decimals).await {
             Ok(updated) => retried.push(updated),
             Err(e) => {
                 log::error!("Failed to retry schedule {}: {}", schedule.id, e);
