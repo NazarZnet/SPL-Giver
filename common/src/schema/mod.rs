@@ -1,9 +1,11 @@
 mod buyer;
 mod group;
-mod shedule;
+mod schedule;
 mod transaction;
+mod users;
 
 pub use buyer::*;
 pub use group::*;
-pub use shedule::*;
+pub use schedule::*;
 pub use transaction::*;
+pub use users::*;

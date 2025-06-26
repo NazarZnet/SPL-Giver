@@ -1,12 +1,13 @@
--- Buyers table
-CREATE TABLE IF NOT EXISTS buyers (
-    wallet TEXT PRIMARY KEY NOT NULL,
-    paid_sol REAL NOT NULL,
-    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    received_percent REAL NOT NULL DEFAULT 0.0,
-    received_spl REAL NOT NULL DEFAULT 0,
-    pending_spl REAL NOT NULL DEFAULT 0,
+-- Buyers table for MySQL
+CREATE TABLE IF NOT EXISTS `buyers` (
+    wallet VARCHAR(50) PRIMARY KEY NOT NULL,
+    paid_lamports BIGINT UNSIGNED NOT NULL,
+    group_id BIGINT NOT NULL,
+    received_percent DOUBLE NOT NULL DEFAULT 0.0,
+    received_spl_lamports BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    pending_spl_lamports BIGINT UNSIGNED NOT NULL DEFAULT 0,
     error TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE
 );

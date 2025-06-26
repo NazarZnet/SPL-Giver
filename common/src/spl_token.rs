@@ -1,57 +1,75 @@
-use std::sync::Arc;
+use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
-    native_token::LAMPORTS_PER_SOL, pubkey::Pubkey, signature::Keypair, signer::Signer,
-    system_instruction::create_account, transaction::Transaction,
+    commitment_config::CommitmentConfig, native_token::LAMPORTS_PER_SOL, pubkey::Pubkey,
+    signature::Keypair, signer::Signer, system_instruction::create_account,
+    transaction::Transaction,
 };
 use spl_associated_token_account::{
     get_associated_token_address_with_program_id, instruction::create_associated_token_account,
 };
 use spl_token_2022::{
-    extension::{ExtensionType, metadata_pointer},
+    extension::{ExtensionType, StateWithExtensions, metadata_pointer},
     id as token_2022_program_id,
     instruction::{initialize_mint, mint_to, transfer_checked},
     state::Mint,
     ui_amount_to_amount,
 };
 use spl_token_metadata_interface::state::TokenMetadata;
-pub struct SplTokenContext {
+pub struct SplToken {
     pub mint: Pubkey,
-    token_acount: Pubkey,
-    pub main_wallet: Arc<Keypair>,
+    pub token_account: Pubkey,
+    pub main_wallet: Keypair,
     pub client: RpcClient,
-    pub amount: u64,
+    pub balance: u64,
+    pub decimals: u8,
 }
 
-impl SplTokenContext {
-    pub async fn new(
-        client: RpcClient,
-        main_wallet: Keypair,
-        mint: Pubkey,
-        token_account: Pubkey,
-        amount: u64,
-    ) -> Result<Self> {
-        let current_token_amount = Self::get_token_account_balance(&client, &token_account).await?;
-        if current_token_amount < amount {
-            Self::mint_tokens(
-                &client,
-                &main_wallet,
-                &mint,
-                &token_account,
-                amount - current_token_amount,
-            )
-            .await?;
-        }
+impl SplToken {
+    pub async fn new(client_url: &str, wallet: &str, mint: &str) -> Result<Self> {
+        let client =
+            RpcClient::new_with_commitment(client_url.to_string(), CommitmentConfig::confirmed());
+
+        let main_wallet = SplToken::keypair_from_str(wallet);
+        let mint = SplToken::pubkey_from_str(mint)?;
+        let token_account = SplToken::get_or_create_associated_token_account(
+            &client,
+            &main_wallet.pubkey(),
+            &main_wallet,
+            &mint,
+        )
+        .await?;
+
+        let balance = Self::get_token_account_balance(&client, &token_account).await?;
+        let mint_data = client.get_account_data(&mint).await?;
+        let mint_info = StateWithExtensions::<Mint>::unpack(&mint_data)?;
+        let decimals = mint_info.base.decimals;
+
         Ok(Self {
             mint,
-            token_acount: token_account,
-            main_wallet: Arc::new(main_wallet),
+            token_account,
+            main_wallet,
             client,
-            amount,
+            balance,
+            decimals,
         })
     }
+    pub async fn connect(client_url: &str) -> RpcClient {
+        RpcClient::new_with_commitment(client_url.to_string(), CommitmentConfig::confirmed())
+    }
+
+    pub fn keypair_from_str(wallet_str: &str) -> Keypair {
+        Keypair::from_base58_string(wallet_str)
+    }
+    pub fn pubkey_from_str(pubkey_str: &str) -> Result<Pubkey> {
+        Pubkey::from_str(pubkey_str).context("Failed to parse pubkey")
+    }
+    pub fn pubkey_from_keypair(keypair: &Keypair) -> Pubkey {
+        keypair.pubkey()
+    }
+
     pub async fn generate_wallet(client: &RpcClient) -> Result<Keypair> {
         let wallet = Keypair::new();
 
@@ -70,7 +88,7 @@ impl SplTokenContext {
 
         Ok(wallet)
     }
-    pub async fn check_wallet_balance(client: &RpcClient, wallet: &Pubkey) -> Result<u64> {
+    pub async fn get_wallet_balance(client: &RpcClient, wallet: &Pubkey) -> Result<u64> {
         let balance = client
             .get_balance(wallet)
             .await
@@ -78,7 +96,11 @@ impl SplTokenContext {
         Ok(balance)
     }
 
-    pub async fn create_mint(client: &RpcClient, fee_payer: &Keypair) -> Result<Pubkey> {
+    pub async fn create_mint(
+        client: &RpcClient,
+        fee_payer: &Keypair,
+        decimals: u8,
+    ) -> Result<Pubkey> {
         let recent_blockhash = client.get_latest_blockhash().await?;
         let mint = Keypair::new();
 
@@ -126,7 +148,7 @@ impl SplTokenContext {
             &mint.pubkey(),
             &fee_payer.pubkey(),
             Some(&fee_payer.pubkey()),
-            9, // decimals
+            decimals,
         )?;
 
         let metadata_instruction = spl_token_metadata_interface::instruction::initialize(
@@ -257,7 +279,7 @@ impl SplTokenContext {
 
         let transfer_instruction = transfer_checked(
             &token_2022_program_id(),
-            &self.token_acount,
+            &self.token_account,
             &self.mint,
             destination_token_account,
             &self.main_wallet.pubkey(),
@@ -269,7 +291,7 @@ impl SplTokenContext {
         let transaction = Transaction::new_signed_with_payer(
             &[transfer_instruction],
             Some(&self.main_wallet.pubkey()),
-            &[Arc::clone(&self.main_wallet)],
+            &[&self.main_wallet],
             recent_blockhash,
         );
 

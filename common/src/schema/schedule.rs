@@ -7,7 +7,7 @@ pub struct Schedule {
     pub group_id: i64,
     pub buyer_wallet: String,
     pub scheduled_at: NaiveDateTime,
-    pub amount: f64,
+    pub amount_lamports: u64,
     pub percent: f64,
     pub status: String, // "pending",  "success", "failed"
     pub error_message: Option<String>,
@@ -20,7 +20,7 @@ impl Schedule {
         group_id: i64,
         buyer_wallet: String,
         scheduled_at: NaiveDateTime,
-        amount: f64,
+        amount_lamports: u64,
         percent: f64,
     ) -> Self {
         Schedule {
@@ -28,7 +28,7 @@ impl Schedule {
             group_id,
             buyer_wallet,
             scheduled_at,
-            amount,
+            amount_lamports,
             percent,
             status: "pending".to_string(), // Default status
             error_message: None,
