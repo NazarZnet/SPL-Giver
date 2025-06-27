@@ -107,7 +107,7 @@ async fn create_superuser(username: &str, email: &str, password: &str) -> anyhow
     let db = Database::new(&database_url).await?;
 
     // Check if user already exists
-    if db.get_user(username).await.is_ok() {
+    if db.get_user(username).await?.is_some() {
         return Err(anyhow::anyhow!(
             "A user with username '{}' already exists.",
             username
