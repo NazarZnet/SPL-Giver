@@ -24,9 +24,9 @@ pub async fn run_cli() -> bool {
         Some(Commands::CreateWallet) => {
             match get_client_url() {
                 Ok(client_url) => match generate_main_wallet(&client_url).await {
-                    Ok(wallet_str) => println!(
-                        "Wallet successfully generated! Base58 Keypair: {}",
-                        wallet_str
+                    Ok((wallet_pubkey, wallet_str)) => println!(
+                        "Wallet successfully generated!\n Pubkey:{} Base58 Keypair: {}",
+                        wallet_pubkey, wallet_str
                     ),
                     Err(e) => eprintln!("Failed to generate wallet: {e}"),
                 },
@@ -129,12 +129,13 @@ fn get_client_url() -> Result<String, String> {
         .map_err(|e| format!("Error: CLIENT_URL environment variable not set: {e}"))
 }
 
-/// Generates a new Solana wallet and returns its base58 keypair string.
-async fn generate_main_wallet(client_url: &str) -> anyhow::Result<String> {
+/// Generates a new Solana wallet and returns its PublicKey and Base58 keypair string.
+async fn generate_main_wallet(client_url: &str) -> anyhow::Result<(String, String)> {
     let client = SplToken::connect(client_url).await;
     let wallet = common::SplToken::generate_wallet(&client).await?;
     let wallet_str = wallet.to_base58_string();
-    Ok(wallet_str)
+    let wallet_pubkey = common::SplToken::pubkey_from_keypair(&wallet).to_string();
+    Ok((wallet_pubkey, wallet_str))
 }
 
 /// Creates a new SPL mint using the provided wallet keypair string and mint decimals. Returns the mint's base58 pubkey.

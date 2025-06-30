@@ -85,18 +85,24 @@ pub async fn initialize_schedules(app_state: &AppState) -> anyhow::Result<()> {
             while remaining_spl_lamports > 0 && remaining_percent > 0.0 {
                 unlock_time += chrono::Duration::seconds(group.unlock_interval_seconds);
                 let percent = group.unlock_percent_per_interval.min(remaining_percent);
-                let interval_amount = (buyer_spl as f64 * percent).round() as u64;
+
+                //If this is the last unlock, adjust the amount to not exceed remaining SPL
+                let is_last = remaining_percent <= group.unlock_percent_per_interval
+                    || remaining_spl_lamports <= ((buyer_spl as f64 * percent).round() as u64);
+
+                let interval_amount = if is_last {
+                    remaining_spl_lamports
+                } else {
+                    (buyer_spl as f64 * percent).round() as u64
+                };
+
                 current_percent += percent;
                 let percent_key = (current_percent * 1_000_000.0).round() as u64;
 
                 if !existing_percents.contains(&percent_key) {
-                    unlocks.push((
-                        unlock_time,
-                        interval_amount.min(remaining_spl_lamports),
-                        current_percent,
-                    ));
+                    unlocks.push((unlock_time, interval_amount, current_percent));
                 }
-                remaining_spl_lamports -= interval_amount.min(remaining_spl_lamports);
+                remaining_spl_lamports = remaining_spl_lamports.saturating_sub(interval_amount);
                 remaining_percent -= percent;
             }
 
